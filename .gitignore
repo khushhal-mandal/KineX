@@ -38,6 +38,18 @@ local.properties
 *.keystore
 keystore.properties
 
+# Backend local-development environment. Holds the local Postgres credentials, which are
+# only safe because that database is not reachable from outside the laptop. The Oracle box
+# takes its own from a Kubernetes Secret in Phase 7 and no value here follows it there.
+# backend/.env.example is committed and is what a new machine copies.
+/backend/.env
+
+# Python bytecode and local virtualenvs anywhere in the tree. /tools/__pycache__ above
+# predates the backend and is now covered by these; it is left alone rather than merged.
+__pycache__/
+*.py[cod]
+/backend/.venv
+
 # Which device was last selected to deploy to. Machine-local churn; Android Studio's own
 # template leaves these tracked, which is wrong for a repo used from more than one machine.
 /.idea/deploymentTargetSelector.xml

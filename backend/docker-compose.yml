@@ -1,0 +1,107 @@
+# Local development only. Phase 7 replaces this with k3s manifests in ../deploy/, so the
+# shapes here are chosen to translate: the one-shot `migrate` service becomes a Job or an
+# initContainer, and the healthchecks become readiness probes.
+#
+#   cp .env.example .env && docker compose up -d
+#
+# All images are pinned and all have linux/arm64, which is both this laptop and the
+# Oracle box.
+
+name: kinex
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg17-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -U and -d are not optional: bare pg_isready answers for the wrong role and
+      # reports ready while the named database is still being created on first boot.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -q"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # Runs once and exits. The API waits on it completing successfully, so a failed
+  # migration keeps the API down instead of letting it serve against a schema that is
+  # not there. Reuses the API image with a different command — no second Dockerfile.
+  migrate:
+    build: .
+    image: kinex-backend:local
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      KINEX_DATABASE_URL: ${KINEX_DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    image: kinex-backend:local
+    environment:
+      KINEX_DATABASE_URL: ${KINEX_DATABASE_URL}
+      KINEX_ENV: ${KINEX_ENV}
+      KINEX_LOG_LEVEL: ${KINEX_LOG_LEVEL}
+      KINEX_OLLAMA_URL: ${KINEX_OLLAMA_URL}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # python rather than curl: the slim base has no curl, and adding one to the image
+      # for the sake of a healthcheck is a package the runtime does not otherwise want.
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import urllib.request, sys
+          sys.exit(0 if urllib.request.urlopen("http://localhost:8000/health", timeout=3).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:0.32.15
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      # `ollama ps` is a round trip to the local server, so it goes green only once the
+      # server is actually answering — not merely once the process has started.
+      test: ["CMD-SHELL", "ollama ps > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # Runs once and exits. Pulls over HTTP against the ollama service, so the blob lands in
+  # the server's volume rather than in this container. Nothing depends on it: the model
+  # is needed for Phase 10's batch jobs, not for the API to serve.
+  ollama-pull:
+    image: ollama/ollama:0.32.15
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull ${OLLAMA_MODEL}"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  pgdata:
+  ollama:
