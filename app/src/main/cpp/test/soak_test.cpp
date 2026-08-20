@@ -111,9 +111,11 @@ FakeArray MakeLandmarks() {
 // A calibration the exercise will accept.
 //
 // It has to be per-exercise now. A flat 170 used to serve every row, and then the calibration
-// guard landed and cycle 3 — the shoulder press, whose target is also 170 — started being
-// refused a handle, because a start angle sitting exactly on the target is precisely the span
+// guard landed and cycle 3 — the shoulder press, whose target was 170 at the time — started
+// being refused a handle, because a start angle sitting on the target is precisely the span
 // collapse the guard exists to reject. That was the guard working, not the engine breaking.
+// The press target is 180 now, so a flat 170 would leave a 10-degree span against a 90-degree
+// configured one and still be refused; reading the row's own nominal is what makes that moot.
 //
 // The row's own nominal start is the obvious believable value, and reading it from the table
 // means this cannot drift out of agreement with a target that moves later.

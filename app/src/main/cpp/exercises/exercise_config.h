@@ -78,9 +78,12 @@ inline constexpr int kExerciseCount = 10;
 //
 // It is **not** the calibration guard. It used to be the only check, and the ten-exercise
 // sweep showed what that was worth — a shoulder press calibrated in the finish pose gave a
-// start of 174 against a 170 target, a 4-degree span, which sailed through this and produced
-// a rep peak of 38.75 with the HUD ring pinned full. Four degrees is not a demanding
-// calibration, it is a wrong one. kMinCalibrationSpanFraction is the real guard now.
+// start of 174 against what was then a 170-degree target, a 4-degree span, which sailed
+// through this and produced a rep peak of 38.75 with the HUD ring pinned full. Four degrees
+// is not a demanding calibration, it is a wrong one. kMinCalibrationSpanFraction is the real
+// guard now. (That target is 180 since the targets were sourced from published ROM, so the
+// same calibration now reads a 6-degree span — still a collapse, and still refused, by the
+// fraction rather than by this.)
 inline constexpr float kMinCalibrationSpanDegrees = 1.0f;
 
 // How much of an exercise's configured span a calibration has to leave to be believable.
@@ -228,6 +231,12 @@ ExerciseConfig SquatConfig();
 // is explicit that copying the squat's rules onto an unvalidated exercise is worse than
 // shipping none.
 //
+// **The 65 is an estimate and is one of the two targets in this table with no published
+// number behind it.** ACSM standardizes the curl-up at 30 degrees of *spinal* flexion, which
+// is not this angle and not this movement; the sit-up kinematics literature reports peak hip
+// flexion as something that varies by style rather than as a figure to prescribe. The reason
+// is argued at kSitUpTargetAngleDegrees in the .cpp.
+//
 // Left-side landmarks, same as the squat and for the same reason: which side faces the
 // camera is the alignment gate's question, not this table's.
 ExerciseConfig SitUpConfig();
@@ -237,9 +246,14 @@ ExerciseConfig SitUpConfig();
 // squat's onto an unvalidated movement ships wrong form advice, which is worse than none.
 //
 //   push-up         side,  shoulder -> elbow -> wrist,  target  90
-//   bicep curl      side,  shoulder -> elbow -> wrist,  target  45
-//   shoulder press  front, shoulder -> elbow -> wrist,  target 170
+//   bicep curl      side,  shoulder -> elbow -> wrist,  target  30
+//   shoulder press  front, shoulder -> elbow -> wrist,  target 180
 //   lateral raise   front, hip -> shoulder -> elbow,    target  90
+//
+// All four targets are published figures converted into this engine's included-angle
+// convention, each cited at its constant in the .cpp. Sourcing a target is not the same as
+// validating a row: it fixes where the movement is supposed to end, and says nothing about
+// whether this pipeline counts that movement correctly, which still wants a fixture.
 //
 // Left-side landmarks throughout, including the two front-view rows, and that is not an
 // oversight to be fixed with a per-camera swap. KineX mirrors coordinates rather than the
@@ -251,22 +265,23 @@ ExerciseConfig BicepCurlConfig();
 ExerciseConfig ShoulderPressConfig();
 ExerciseConfig LateralRaiseConfig();
 
-// Ids 6..9, taking the table to ten. Side view throughout, rep counting only, and
-// left-side landmarks for the same reason every row above uses them.
+// Ids 6, 7 and 9. The jumping jack holds 8 and is documented below. Side view throughout,
+// rep counting only, and left-side landmarks for the same reason every row above uses them.
 //
-//   lunge             hip -> knee -> ankle,        target  90
-//   glute bridge      shoulder -> hip -> knee,     target 170
-//   tricep extension  shoulder -> elbow -> wrist,  target 170
-//   leg raise         shoulder -> hip -> ankle,    target  90
+//   lunge         hip -> knee -> ankle,      target  90
+//   glute bridge  shoulder -> hip -> knee,   target 180
+//   leg raise     shoulder -> hip -> ankle,  target  90
 //
-// **Every angle in these four rows is an estimate.** The targets are not measured peaks
-// the way the squat's 90 is; they are what the movement is supposed to reach, written down
-// so the row exists. The start angles that pair with them (roughly 170, 120, 60 and 170)
-// are estimates too and are not in this file at all — calibration captures a start per
-// user, which is the only reason shipping an unmeasured target is survivable: the span the
-// normalization divides by is half measured on the athlete. The known next step for all
-// four is per-user range-of-motion calibration, which would capture the target the same
-// way the start is captured now and retire the estimate rather than tuning it.
+// **These three targets are published figures now, not the estimates they landed as.** The
+// lunge's 90 is NSCA's technique cue, the bridge's 180 is the shoulder-hip-knee line every
+// coaching source describes, and the leg raise's 90 is legs vertical, bracketed by AAOS hip
+// flexion. Each is cited at its constant in the .cpp.
+//
+// **The start angles that pair with them are still estimates**, and they are not in this file
+// at all — calibration captures a start per athlete. That is what makes a sourced target
+// usable: the span the normalization divides by is half measured on the person in frame.
+// Per-user ROM calibration, capturing the target the same way the start already is, remains
+// the step that would make a row's *own* range of motion its target rather than a norm's.
 //
 // Two of them reuse a joint triple that is already in the table — the lunge measures the same
 // knee as the squat, the glute bridge the same hip as the sit-up. That is expected and is not
@@ -279,6 +294,11 @@ ExerciseConfig LegRaiseConfig();
 
 // The jumping jack: front view, hip -> shoulder -> elbow with the angle at the shoulder,
 // 15 -> 160 degrees. Same joint triple as the lateral raise, taken far further.
+//
+// **The 160 is an estimate and is the other of the two targets with no published number**
+// (the sit-up's 65 is the first). AAOS gives shoulder abduction a 180-degree ceiling, which
+// 160 sits under, but no strength-and-conditioning source prescribes how far the arms travel
+// on a jumping jack the way ACE does for a lateral raise. Argued at its constant in the .cpp.
 //
 // **It occupies id 8, which the tricep extension used to hold.** That is the one deliberate
 // exception to this file's own rule that ids are appended and never reused, and it is safe

@@ -33,6 +33,13 @@ constexpr float kRepCompleteProgress = 0.20f;
 // The exercises in the design doc's table, with the typical start angles it lists. The starts are
 // "what to expect, not a constant to hardcode" — they are here to report against, and no
 // assertion depends on any of them.
+//
+// **Every start below is still an estimate. Eight of the ten targets are not.** The targets
+// were sourced from published kinesiology — AAOS ROM norms where the movement ends at end
+// range, a technique endpoint where one is published — and each is cited at its constant in
+// exercises/exercise_config.cpp. The two that no published figure covers are marked "(est.)"
+// below, and are the sit-up's 65 and the jumping jack's 160. The marker means the *target* is
+// a guess; every start in this table is one regardless.
 struct Exercise {
     const char* name;
     float typical_start_degrees;
@@ -42,22 +49,20 @@ struct Exercise {
 constexpr Exercise kTable[] = {
     {"squat", 170.0f, 90.0f},
     {"push-up", 170.0f, 90.0f},
-    {"bicep curl", 170.0f, 45.0f},
-    {"shoulder press", 90.0f, 170.0f},
+    {"bicep curl", 170.0f, 30.0f},
+    {"shoulder press", 90.0f, 180.0f},
     {"lateral raise", 15.0f, 90.0f},
     // The sit-up's start is an estimate for a knees-bent supine pose, not a measured one —
-    // no fixture exists. It is the least trustworthy number in this table, and the row is
-    // here so the degree thresholds can be read off before a depth_pass is chosen.
+    // no fixture exists — and its target is the one ACSM's curl-up protocol does not answer,
+    // because 30 degrees of spinal flexion is not this hip angle. Both columns are guesses.
     {"sit-up (est.)", 135.0f, 65.0f},
-    // Ids 6..9, and both columns are estimates for all four — unlike the rows above, where
-    // only the start was ever a guess. Marked so nothing reads a threshold off this report
-    // and calls it measured.
-    {"lunge (est.)", 170.0f, 90.0f},
-    {"glute bridge (est.)", 120.0f, 170.0f},
+    {"lunge", 170.0f, 90.0f},
+    {"glute bridge", 120.0f, 180.0f},
     // Jumping jack took id 8 from the tricep extension, which was removed rather than
-    // retuned: its elbow was not trackable overhead. Both columns still estimates.
+    // retuned: its elbow was not trackable overhead. Its target is the second of the two with
+    // no published endpoint — AAOS's 180-degree abduction ceiling is not a prescription.
     {"jumping jack (est.)", 15.0f, 160.0f},
-    {"leg raise (est.)", 170.0f, 90.0f},
+    {"leg raise", 170.0f, 90.0f},
 };
 
 // The two rows whose angle runs upward, with the estimated start each pairs with. The starts
@@ -307,14 +312,16 @@ TEST(ExerciseConfigTest, TheRemainingRowsMatchTheDocumentedTable) {
     EXPECT_EQ(kLeftShoulder, curl.joint_a);
     EXPECT_EQ(kLeftElbow, curl.joint_b);
     EXPECT_EQ(kLeftWrist, curl.joint_c);
-    EXPECT_FLOAT_EQ(45.0f, curl.target_angle_degrees);
+    // 180 - 150, AAOS elbow flexion. Was an estimated 45.
+    EXPECT_FLOAT_EQ(30.0f, curl.target_angle_degrees);
 
     const ExerciseConfig press = ShoulderPressConfig();
     EXPECT_EQ(View::kFront, press.view);
     EXPECT_EQ(kLeftShoulder, press.joint_a);
     EXPECT_EQ(kLeftElbow, press.joint_b);
     EXPECT_EQ(kLeftWrist, press.joint_c);
-    EXPECT_FLOAT_EQ(170.0f, press.target_angle_degrees);
+    // Full elbow extension at lockout, which AAOS puts at 0 degrees of flexion. Was 170.
+    EXPECT_FLOAT_EQ(180.0f, press.target_angle_degrees);
 
     const ExerciseConfig raise = LateralRaiseConfig();
     EXPECT_EQ(View::kFront, raise.view);
@@ -324,10 +331,11 @@ TEST(ExerciseConfigTest, TheRemainingRowsMatchTheDocumentedTable) {
     EXPECT_FLOAT_EQ(90.0f, raise.target_angle_degrees);
 }
 
-// Ids 6..9, against the design doc's table. Every target here is an estimate, which is exactly why
-// it is pinned: an estimate that drifts silently is indistinguishable from a measurement, and
-// the day a fixture replaces one of these numbers that should be a deliberate edit with a
-// recording behind it rather than something that happened.
+// Ids 6..9, against the design doc's table. Three of these four targets are published figures now
+// and the jumping jack's is still an estimate, and both kinds are pinned for the same reason:
+// a number that drifts silently is indistinguishable from one somebody chose, and the day a
+// fixture or a source replaces one it should be a deliberate edit with a citation behind it
+// rather than something that happened.
 TEST(ExerciseConfigTest, TheFourRowsThatTookTheTableToTenMatchTheDocumentedTable) {
     const ExerciseConfig lunge = LungeConfig();
     EXPECT_EQ(View::kSide, lunge.view);
@@ -346,7 +354,8 @@ TEST(ExerciseConfigTest, TheFourRowsThatTookTheTableToTenMatchTheDocumentedTable
     EXPECT_EQ(kLeftShoulder, bridge.joint_a);
     EXPECT_EQ(kLeftHip, bridge.joint_b);
     EXPECT_EQ(kLeftKnee, bridge.joint_c);
-    EXPECT_FLOAT_EQ(170.0f, bridge.target_angle_degrees);
+    // Shoulder, hip and knee in line at the top — the three landmarks this row reads. Was 170.
+    EXPECT_FLOAT_EQ(180.0f, bridge.target_angle_degrees);
 
     // Jumping jack, on id 8, which the tricep extension used to hold. Front view and the
     // lateral raise's joint triple carried much further round.
@@ -371,9 +380,12 @@ TEST(ExerciseConfigTest, TheFourRowsThatTookTheTableToTenMatchTheDocumentedTable
 // ---------------------------------------------------------------------------
 
 // The case the guard exists for. A shoulder press calibrated in the finish pose measured 174
-// degrees against a 170-degree target: a 4-degree span, which the old absolute floor of 1
-// degree happily accepted and which turned every degree of movement into a quarter of a rep.
-// The device recorded a peak of 38.75 and pinned the HUD ring full for the whole set.
+// degrees against what was then a 170-degree target: a 4-degree span, which the old absolute
+// floor of 1 degree happily accepted and which turned every degree of movement into a quarter
+// of a rep. The device recorded a peak of 38.75 and pinned the HUD ring full for the whole
+// set. The target is 180 now, so the same capture reads a 6-degree span — the collapse is
+// slightly less extreme and the verdict is unchanged, which is the point of asserting it
+// against the config rather than against a remembered number.
 TEST(CalibrationGuardTest, RefusesTheShoulderPressSpanCollapse) {
     const ExerciseConfig press = ShoulderPressConfig();
     EXPECT_FALSE(IsCalibrationPlausible(press, 174.0f))
@@ -445,7 +457,11 @@ TEST(ExerciseConfigTest, EveryRowCarriesAUsableNominalStart) {
         EXPECT_GT(span, kMinCalibrationSpanDegrees)
             << "exercise id " << config.id << " has a nominal start on top of its target";
         // Every row in the design doc's table covers a real range of motion. The narrowest is the
-        // lateral raise at 75 degrees; anything much under that is a typo, not an exercise.
+        // glute bridge at 60 degrees — 120 nominal to a 180 target — with the sit-up at 70 and
+        // the lateral raise at 75 behind it; anything much under that is a typo, not an
+        // exercise. This comment used to name the lateral raise as narrowest, which was wrong
+        // from the moment ids 6..9 landed: the bridge was 50 degrees on its estimated 170
+        // target, and sourcing that target from the shoulder-hip-knee line *widened* it to 60.
         EXPECT_GE(span, 40.0f) << "exercise id " << config.id << " spans only " << span
                                << " degrees, which no row in the table does";
     }
@@ -605,13 +621,16 @@ TEST(RepProgressTest, ReportsTheThresholdAnglesForEveryExercise) {
     Report("shared thresholds in degrees, per exercise (start angles are the design doc's");
     Report("'typical', captured per user at calibration — nothing here is asserted)");
     Report("");
-    Report("exercise          start   target  advance   complete  peak(0.85)");
+    Report("targets are published figures; (est.) marks the two with no source — see");
+    Report("exercises/exercise_config.cpp, where every target names where it came from");
+    Report("");
+    Report("exercise              start   target  advance   complete  peak(0.85)");
     for (const Exercise& exercise : kTable) {
         const float start = exercise.typical_start_degrees;
         const float target = exercise.target_degrees;
 
         std::ostringstream row;
-        row << std::left << std::setw(18) << exercise.name << std::right << std::setw(6)
+        row << std::left << std::setw(20) << exercise.name << std::right << std::setw(6)
             << Fixed(start, 0) << std::setw(9) << Fixed(target, 0) << std::setw(9)
             << Fixed(AngleAt(kAdvanceTriggerProgress, start, target), 1) << std::setw(11)
             << Fixed(AngleAt(kRepCompleteProgress, start, target), 1) << std::setw(12)
