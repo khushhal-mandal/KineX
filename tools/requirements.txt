@@ -1,0 +1,37 @@
+# Dependencies for tools/ — the fixture extractor and nothing else.
+#
+# DEV-ONLY. None of these ship. They are not in the APK, not in the backend image, and not
+# in backend/pyproject.toml. The APK's dependencies are declared in build.gradle.kts and the
+# backend's in backend/pyproject.toml; this file is read by a developer's terminal and by
+# nothing else. Adding any of these to a Dockerfile or a Gradle file is a mistake — mediapipe
+# alone unpacks to ~100 MB of native library, on a 12 GB box that also runs Postgres and
+# Ollama.
+#
+#     python3 -m venv tools/.venv
+#     tools/.venv/bin/pip install -r tools/requirements.txt
+#     tools/.venv/bin/python tools/extract_landmarks.py clip.mp4 \
+#         -o app/src/main/cpp/test/fixtures/squat_10rep.jsonl
+#
+# mediapipe is pinned to 0.10.x deliberately, and NOT upgraded to 1.0.x.
+#
+# On macOS arm64, mediapipe 1.0.1 aborts while building a PoseLandmarker unless the GPU
+# delegate is selected explicitly:
+#
+#     F graph_service.h:139] Check failed: service_ Service is unavailable.
+#     @ -[DrishtiMetalHelper initWithCalculatorContext:]
+#     @ mediapipe::api2::TensorsToDetectionsCalculator::Open()
+#
+# extract_landmarks.py builds BaseOptions without a delegate, which is the CPU default, so
+# under 1.0.1 it dies before reading a single frame. 0.10.35 runs that same call fine. The
+# pin is load-bearing — verified on Python 3.11.13 and 3.13.7, both arm64.
+mediapipe==0.10.35
+
+# Read the video and convert BGR -> RGB. Pinned because it decodes the frames the landmarks
+# are derived from.
+opencv-python==5.0.0.93
+
+# Transitive: pulled in by mediapipe, not imported by extract_landmarks.py. Listed because
+# it is part of the environment a fixture was produced in, and left unpinned because the
+# resolved version legitimately differs by interpreter — 1.26.4 on 3.11, 2.5.2 on 3.13 —
+# and neither affects the landmark values.
+numpy

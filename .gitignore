@@ -1,0 +1,40 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Dev-only tooling environment for tools/. Rebuilt from tools/requirements.txt; never
+# shipped, and several hundred MB of native wheels that must not reach a commit.
+/tools/.venv
+/tools/__pycache__
+
+# Source clips for fixture extraction. The extracted .jsonl fixture is what the tests
+# read and what belongs in the repo — the video it came from does not.
+/videos
+/tools/videos
+
+# The module's build output. /build above only covers the root project, and this is where
+# the 34 MB APK and the CMake objects land.
+/app/build
+
+# Kotlin compiler's incremental session directory.
+/.kotlin
+
+# Signing material. Nothing matches today — the release keystore arrives in Phase 11 — but
+# a key that reaches a public GitHub repo cannot be un-published, only revoked, and by then
+# every APK it signed is orphaned. The pattern goes in before the file exists, not after.
+*.jks
+*.keystore
+keystore.properties
+

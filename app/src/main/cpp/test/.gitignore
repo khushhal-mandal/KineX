@@ -1,0 +1,8 @@
+soak_leak
+soak_asan
+one_euro_test
+geometry_test
+rep_fsm_test
+*.o
+*.dSYM/
+exercise_config_test
