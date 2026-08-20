@@ -38,3 +38,11 @@ local.properties
 *.keystore
 keystore.properties
 
+# Which device was last selected to deploy to. Machine-local churn; Android Studio's own
+# template leaves these tracked, which is wrong for a repo used from more than one machine.
+/.idea/deploymentTargetSelector.xml
+/.idea/deviceManager.xml
+
+# Database pulls off the device. Real training data rather than project source, and it is
+# the user's to keep or discard — see db-backups/RESTORE.md before restoring one.
+/db-backups
