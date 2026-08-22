@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+    Debug builds only. This file lives in src/debug/, so the isolation is the source set
+    rather than anything written inside the file — a release build has no networkSecurityConfig
+    at all and inherits the platform default, which refuses cleartext outright.
+
+    Permitted broadly rather than by host on purpose. The backend a debug build talks to is
+    whatever `kinex.apiBaseUrl` in local.properties points at: 10.0.2.2 from an emulator, some
+    192.168.x.y from a phone on the same Wi-Fi, a different one on the next network. Listing
+    them would put one developer's LAN address in a committed file and make the next person
+    debug a connection refusal that is really a missing entry here.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -51,3 +51,15 @@ data class SetSummary(val sessionId: Long)
 /** One past set and its reps, reached from [History] or from Home's recent list. */
 @Serializable
 data class SessionDetail(val sessionId: Long)
+
+/**
+ * The twelve-word recovery phrase.
+ *
+ * [firstRun] is the difference between the two ways in, and it changes what leaving means.
+ * True is the one-time presentation after the account is created: the button acknowledges the
+ * phrase, and acknowledging is what stops this screen appearing again. False is a later
+ * re-read from Settings, which acknowledges nothing and just goes back — the phrase is not a
+ * thing you can only be told once, it is a thing you should only be *interrupted* about once.
+ */
+@Serializable
+data class RecoveryPhrase(val firstRun: Boolean)

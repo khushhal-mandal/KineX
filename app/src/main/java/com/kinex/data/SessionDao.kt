@@ -69,4 +69,29 @@ interface SessionDao {
 
     @Query("SELECT * FROM reps WHERE sessionId = :sessionId ORDER BY repIndex ASC")
     fun reps(sessionId: Long): Flow<List<RepEntity>>
+
+    /**
+     * Sets the backend has not acknowledged, oldest first, with their reps.
+     *
+     * Oldest first so a backlog uploads in the order it was trained, and so a [limit] that cuts
+     * the batch short leaves the *newest* sets behind — those are the ones the next run will
+     * reach soonest anyway.
+     *
+     * A one-shot `suspend` list rather than a Flow: the sync worker wants the set of rows as
+     * they stand when it starts, not a subscription that re-emits while it is uploading them.
+     */
+    @Transaction
+    @Query("SELECT * FROM sessions WHERE syncedAt IS NULL ORDER BY startedAtMs ASC LIMIT :limit")
+    suspend fun unsyncedSessions(limit: Int): List<SessionWithReps>
+
+    /**
+     * Records that the backend has these sets. Keyed on [SessionEntity.uid] rather than on the
+     * rowid, because the uid is what the server answered about.
+     */
+    @Query("UPDATE sessions SET syncedAt = :syncedAtMs WHERE uid IN (:uids)")
+    suspend fun markSynced(uids: List<String>, syncedAtMs: Long)
+
+    /** How many sets are still waiting. Settings shows it; nothing branches on it. */
+    @Query("SELECT COUNT(*) FROM sessions WHERE syncedAt IS NULL")
+    fun unsyncedCount(): Flow<Int>
 }

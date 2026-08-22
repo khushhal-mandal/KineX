@@ -1,9 +1,11 @@
 package com.kinex.data
 
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.Relation
 
 /**
  * One completed set.
@@ -22,13 +24,46 @@ import androidx.room.PrimaryKey
  * appended and never renumbered precisely so a row written today still means the same
  * exercise after another five land.
  */
-@Entity(tableName = "sessions")
+@Entity(tableName = "sessions", indices = [Index(value = ["uid"], unique = true)])
 data class SessionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /**
+     * The identifier the backend knows this set by — half of `(device_id, client_session_id)`,
+     * which is what makes an ingest idempotent. A v4 UUID, canonical lowercase hyphenated form.
+     *
+     * **Minted when the row is inserted, and never again.** Not at sync time: a sync that
+     * writes to the server and then dies before recording that it did has to present the same
+     * value on the retry, or the retry is a second workout. Storing it is what makes the
+     * identifier survive the crash, so it belongs to the row from the moment the row exists.
+     *
+     * **[id] cannot do this job**, which is why the column is here at all. A rowid is unique
+     * only within one database file: `pm clear` wiped this database on 19 Aug 2026 and a
+     * rebuilt one restarts AUTOINCREMENT at 1, so its new sessions would collide with
+     * already-synced ones under the same device and be dropped as duplicate retries — silently
+     * losing a *new* workout. A UUID is the only value a wiped device cannot accidentally
+     * re-mint.
+     *
+     * Canonical form is stored rather than any spelling `uuid` would accept. Postgres folds
+     * case and braces on the way in, so a non-canonical value would still collide correctly —
+     * but then a request log and a `psql` session would show different strings for one row,
+     * and that difference is only ever discovered while debugging something else.
+     */
+    val uid: String,
     val exerciseId: Int,
     val startedAtMs: Long,
     val durationMs: Long,
     val repCount: Int,
+    /**
+     * Wall clock at the moment the backend acknowledged this set, or null while it has not.
+     *
+     * Null is the whole query: the sync worker uploads `WHERE syncedAt IS NULL`. It is set only
+     * after a response, so a run that dies mid-upload leaves the row unsynced and the next run
+     * re-sends it — which the backend absorbs, because that is what `(device_id, uid)` is for.
+     *
+     * Wall clock rather than the frame clock, because this timestamp is about the network and
+     * has no relationship to anything MediaPipe measured.
+     */
+    val syncedAt: Long? = null,
 )
 
 /**
@@ -56,6 +91,19 @@ data class SessionEntity(
 data class TrainingTotals(
     val setCount: Int,
     val repCount: Int,
+)
+
+/**
+ * A set with the reps that belong to it, which is the shape the backend ingests.
+ *
+ * Not a table either — Room fills [reps] with a second query keyed on the sessions it just
+ * read, which is why the DAO method returning this is `@Transaction`. One extra query per
+ * batch, rather than one per session, is the reason to state the relation rather than loop.
+ */
+data class SessionWithReps(
+    @Embedded val session: SessionEntity,
+    @Relation(parentColumn = "id", entityColumn = "sessionId")
+    val reps: List<RepEntity>,
 )
 
 @Entity(

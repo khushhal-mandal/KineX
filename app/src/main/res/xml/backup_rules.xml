@@ -1,13 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+    Auto Backup, for devices below API 31. See data_extraction_rules.xml for 31 and above;
+    both files have to say the same thing or the rule only applies to half the fleet.
+
+    kinex.identity.xml holds the recovery-phrase entropy, which is the whole account: the
+    phrase, the private key, the device id and every synced session all derive from it. Two
+    reasons it must not be backed up, and the second is the one that would actually bite:
+
+      - it is the account, and an account key should not be sitting in a cloud backup;
+      - it is encrypted with a key held in this device's Keystore, which is not backed up
+        with it. A restored copy would be a file the app cannot decrypt, so backing it up
+        does not even work — it produces an identity that reads as corrupt.
+
+    The recovery phrase is how an account moves to a new phone. That is the whole point of
+    there being one.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude
+        domain="sharedpref"
+        path="kinex.identity.xml" />
 </full-backup-content>

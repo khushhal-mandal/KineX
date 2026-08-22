@@ -25,6 +25,7 @@ import com.kinex.pose.RepCounter
 import com.kinex.pose.RepSnapshot
 import com.kinex.pose.RepState
 import com.kinex.pose.Violation
+import com.kinex.sync.SessionSyncWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -400,6 +401,11 @@ class WorkoutViewModel(
                     // Published only after the row exists, so the summary screen's query
                     // cannot race the insert that created what it is querying for.
                     if (announce && sessionId != null) savedSessionId = sessionId
+                    // Asked for after the row exists, for the same reason: the worker reads
+                    // unsynced rows out of the database, so enqueueing before the insert is a
+                    // request to upload a set that is not there yet. WorkManager holds it
+                    // until the Wi-Fi constraint is met, so this costs nothing offline.
+                    if (sessionId != null) SessionSyncWorker.enqueue(getApplication())
                 } catch (failure: Exception) {
                     error = "Could not save the set: ${failure.message}"
                 }

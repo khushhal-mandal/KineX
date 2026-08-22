@@ -17,6 +17,27 @@ room = "2.8.4"
 # AGP 9 at 2.0.21 either. KSP 2.3.x is decoupled from the compiler version and works as-is.
 ksp = "2.3.11"
 navigationCompose = "2.8.9"
+# Ed25519 signing. The platform provider only offers Ed25519 from API 33 and minSdk is 24,
+# which is the whole reason the root design doc's auth contract budgets for this dependency.
+bouncycastle = "1.80"
+# The JSON runtime the serialization compiler plugin's generated code calls into. The plugin
+# itself is pinned to the project's Kotlin (2.0.21) and is already applied for navigation's
+# type-safe routes.
+#
+# **1.8.1 because Room 2.8.4 requires it, and 1.7.3 does not merely lose a feature — it
+# breaks.** 1.7.3 is the release matched to Kotlin 2.0.21 and was the first choice here, but
+# kotlinx-serialization publishes a BOM with `strictly` constraints, so declaring it
+# downgraded room-migration's own 1.8.1 request. Room's `$$serializer` classes are compiled
+# against 1.8's `GeneratedSerializer`, where `typeParametersSerializers()` has a default
+# implementation they do not override; under 1.7.3 that method is abstract and every schema
+# load dies with AbstractMethodError. Found by MigrationTestHelper failing to read 1.json.
+#
+# The direction that matters for the plugin is the other one: a runtime *newer* than the
+# plugin is the supported pairing, and this combination is exercised by the unit tests and by
+# a real handshake against the backend.
+kotlinxSerialization = "1.8.1"
+work = "2.11.2"
+securityCrypto = "1.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -45,6 +66,20 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 # against an artifact nothing in this file names is how a transitive bump breaks a build for
 # reasons that are invisible here. Same version the rest of lifecycle resolves to.
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
+bouncycastle = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+# work-runtime, not work-runtime-ktx: at 2.11.2 the ktx artifact is a 6 KB aar with no
+# classes in it, the same way room-ktx is empty as of Room 2.7. CoroutineWorker lives here.
+androidx-work-runtime = { group = "androidx.work", name = "work-runtime", version.ref = "work" }
+# EncryptedSharedPreferences for the recovery-phrase entropy. Anything that can read that
+# value owns the account, so it does not go in a plain prefs file next to the camera default.
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+# Test-only. MigrationTestHelper is what lets a v1 database with rows in it be opened,
+# migrated and inspected, which is the only way to test a migration against real data.
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+# Test-only. TestListenableWorkerBuilder runs a worker's doWork() directly and synchronously,
+# which is what lets the sync path be asserted on rather than waited for.
+androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

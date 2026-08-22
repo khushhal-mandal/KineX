@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+    API 31 and above. backup_rules.xml is the same rule for older devices; keep them in step.
+
+    Both paths are excluded, not just cloud-backup. Device transfer is the local phone-to-phone
+    copy, and it has the same two problems: it moves an account key off the device, and it
+    moves a file encrypted with a Keystore key that does not travel with it.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude
+            domain="sharedpref"
+            path="kinex.identity.xml" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude
+            domain="sharedpref"
+            path="kinex.identity.xml" />
     </device-transfer>
-    -->
 </data-extraction-rules>

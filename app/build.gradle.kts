@@ -1,3 +1,7 @@
+// Imported rather than written as `java.util.Properties` below: inside a Gradle Kotlin DSL
+// script, `java` resolves to the JavaPluginExtension and shadows the package name.
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -9,6 +13,25 @@ plugins {
     // serializers. See the note in libs.versions.toml for why this one is safe to pin to the
     // project's Kotlin when KSP is not.
     alias(libs.plugins.kotlin.serialization)
+}
+
+/**
+ * Where a debug build looks for the backend.
+ *
+ * `10.0.2.2` is the emulator's alias for the host loopback, so the default works against
+ * `docker compose up` on this machine with no configuration at all. A physical phone cannot
+ * use it — it is not on the host's loopback — and wants the laptop's LAN address instead, so
+ * that case is one line in `local.properties`, which is gitignored and already per-machine:
+ *
+ *     kinex.apiBaseUrl=http://192.168.1.x:8000
+ *
+ * No trailing slash; the client appends paths that start with one.
+ */
+val devApiBaseUrl: String = run {
+    val properties = Properties()
+    rootProject.file("local.properties").takeIf { it.exists() }
+        ?.inputStream()?.use { properties.load(it) }
+    properties.getProperty("kinex.apiBaseUrl") ?: "http://10.0.2.2:8000"
 }
 
 android {
@@ -27,6 +50,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "API_BASE_URL", "\"$devApiBaseUrl\"")
 
         ndk {
             // MediaPipe's native lib is 11-15 MB per ABI; arm64-v8a alone keeps the
@@ -50,10 +75,31 @@ android {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
 
+    // The same directory, handed to the instrumented tests as assets. MigrationTestHelper
+    // builds a database *at* an old version by reading that version's JSON, which is the only
+    // way to get a v1 database on a device that has only ever known v2 — and therefore the only
+    // way to test a migration against rows rather than against an empty table.
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     androidResources {
         // Keep the .task model uncompressed — MediaPipe reads it via AAsset_getBuffer,
         // which would otherwise inflate all 5.5 MB into heap on startup.
         noCompress += "task"
+    }
+
+    // The auth contract's committed test vector, handed to the unit tests as an absolute path
+    // rather than copied into test resources. One copy exists; if it moves, the test fails
+    // saying so, instead of quietly checking the Kotlin implementation against a stale twin of
+    // the thing it is supposed to be checked against.
+    testOptions {
+        unitTests.all {
+            it.systemProperty(
+                "kinex.authVector",
+                rootProject.file("backend/tests/vectors/auth_v1.json").absolutePath,
+            )
+        }
     }
 
     buildTypes {
@@ -63,6 +109,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Deliberately unreachable. Phase 7 has not happened, so there is no production
+            // backend to name, and `.invalid` is reserved by RFC 2606 and never resolves — a
+            // release build that tries to sync fails loudly rather than quietly reaching for
+            // whatever laptop happened to be in local.properties at build time.
+            buildConfigField("String", "API_BASE_URL", "\"https://api.kinex.invalid\"")
         }
     }
     compileOptions {
@@ -97,8 +148,20 @@ dependencies {
     // library" over a two-value enum; this session is what cashed that in.
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // Ed25519. See "The auth contract" in the root design doc for why the curve is Ed25519 and
+    // why that costs a dependency: the platform provider only has it from API 33, minSdk is
+    // 24, and a recovery phrase rules out the Keystore regardless of curve. Also supplies
+    // PBKDF2-HMAC-SHA512 for BIP-39, which `SecretKeyFactory` only offers from API 26.
+    implementation(libs.bouncycastle)
+    // The wire format is JSON. The serialization compiler plugin is already applied for
+    // navigation's routes; this is the runtime that plugin's generated serializers call into.
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.security.crypto)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.work.testing)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
