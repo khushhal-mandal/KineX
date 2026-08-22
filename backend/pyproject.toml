@@ -19,7 +19,27 @@ dependencies = [
     # SQLAlchemy is alembic's own dependency and is used only as alembic's engine.
     # The runtime data path is raw asyncpg — see the locked decisions in the root design doc.
     "sqlalchemy[asyncio]>=2.0.52,<2.1",
+    # Ed25519 signature verification. Nothing in the stdlib does this.
+    "cryptography>=50.0.0,<51",
+    "pyjwt>=2.13.0,<3",
 ]
+
+# Not installed in the runtime image — the Dockerfile's `test` stage adds them.
+# There is deliberately no BIP-39 library: the server never sees a recovery phrase, and
+# the one place it derives a seed is the committed test vector, which needs only
+# hashlib.pbkdf2_hmac. See "The auth contract" in the root design doc.
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1.1,<10",
+    "pytest-asyncio>=1.4.0,<2",
+    "httpx>=0.28.1,<0.29",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# The image runs as a non-root user with no write access to /srv.
+cache_dir = "/tmp/pytest_cache"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

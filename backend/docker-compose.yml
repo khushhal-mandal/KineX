@@ -33,7 +33,9 @@ services:
   # migration keeps the API down instead of letting it serve against a schema that is
   # not there. Reuses the API image with a different command — no second Dockerfile.
   migrate:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: kinex-backend:local
     command: ["alembic", "upgrade", "head"]
     environment:
@@ -44,10 +46,13 @@ services:
     restart: "no"
 
   api:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: kinex-backend:local
     environment:
       KINEX_DATABASE_URL: ${KINEX_DATABASE_URL}
+      KINEX_JWT_SECRET: ${KINEX_JWT_SECRET}
       KINEX_ENV: ${KINEX_ENV}
       KINEX_LOG_LEVEL: ${KINEX_LOG_LEVEL}
       KINEX_OLLAMA_URL: ${KINEX_OLLAMA_URL}
@@ -101,6 +106,29 @@ services:
       ollama:
         condition: service_healthy
     restart: "no"
+
+  # `docker compose run --rm test`. Behind a profile so a normal `up` never starts it.
+  # Tests build their own database inside this same Postgres — see tests/conftest.py —
+  # rather than mocking one, and rather than touching the dev database.
+  test:
+    build:
+      context: .
+      target: test
+    image: kinex-backend:test
+    environment:
+      # The DSN of the *server*; conftest creates and migrates kinex_test under it.
+      KINEX_DATABASE_URL: ${KINEX_DATABASE_URL}
+      KINEX_JWT_SECRET: ${KINEX_JWT_SECRET}
+      KINEX_ENV: test
+      # INFO, not WARNING: at WARNING every logger.info() short-circuits before building
+      # a LogRecord, so a bad `extra` key is invisible to the whole suite. One reached
+      # the live server on 22 Aug 2026 — extra={"created": ...} collides with
+      # LogRecord.created and 500s every successful POST /sessions.
+      KINEX_LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["test"]
 
 volumes:
   pgdata:

@@ -6,7 +6,9 @@ the runtime data path is raw asyncpg, and a set of ORM models that nothing queri
 be a second description of the schema kept in sync by hand anyway.
 
 This still imports `app.config`, which is why the migrate container reuses the API image
-rather than having a Dockerfile of its own.
+rather than having a Dockerfile of its own — but it deliberately imports the narrow
+`sqlalchemy_dsn_from_env` rather than building `Settings`. A migration needs a database
+URL and must not be made to hold `KINEX_JWT_SECRET`, which is a key that mints tokens.
 """
 
 import asyncio
@@ -16,14 +18,14 @@ from alembic import context
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
 
-from app.config import get_settings
+from app.config import sqlalchemy_dsn_from_env
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", get_settings().sqlalchemy_dsn)
+config.set_main_option("sqlalchemy.url", sqlalchemy_dsn_from_env())
 
 target_metadata = None
 

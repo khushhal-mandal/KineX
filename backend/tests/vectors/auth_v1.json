@@ -1,0 +1,17 @@
+{
+  "_warning": "NOT A SECRET, AND NEVER USE THIS PHRASE FOR A REAL ACCOUNT. This is the canonical BIP-39 all-zero-entropy test vector, published in the spec and present in every wallet test suite; ed25519_seed_hex below is therefore a private key that the whole world already has. It is committed on purpose so both implementations can check themselves against the same known answer.",
+  "_comment": "The auth contract, executable. A Kotlin implementation must reproduce every field below exactly. See 'The auth contract' in the root design doc.",
+  "_phrase_note": "The canonical BIP-39 all-zero-entropy phrase, chosen so bip39_seed_hex can be checked against the published BIP-39 test vector rather than against ourselves.",
+  "contract_version": "kinex-auth-v1",
+  "recovery_phrase": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+  "bip39_passphrase": "",
+  "bip39_seed_hex": "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4",
+  "ed25519_seed_hex": "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc1",
+  "_seed_note": "ed25519_seed_hex is the FIRST 32 BYTES of bip39_seed_hex. No BIP-32/SLIP-10 derivation path is applied.",
+  "public_key_b64url": "xXheGGW3CJOK_4Fh1XMAZJZmOxqhCDTjltxWaGmixmo",
+  "device_id": "7Q-HhBZuCr__Uamv-bolnYwCjtO4Q-wbOljuoz7PE04",
+  "nonce_b64url": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "signed_message_ascii": "kinex-auth-v1:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "signature_b64url": "Ldq2SXEkhDt0Uuxy1kgp_IuLNcsjbc3Wz_j3eEnoNwxiFyMPWsQaXIjJDRBIMEjXPEHTz34-7J7EAIo5HpmDBQ",
+  "_encoding_note": "Every *_b64url field is base64url with NO padding. Raw key bytes, not DER or PEM."
+}
