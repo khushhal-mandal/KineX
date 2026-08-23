@@ -22,17 +22,32 @@ dependencies = [
     # Ed25519 signature verification. Nothing in the stdlib does this.
     "cryptography>=50.0.0,<51",
     "pyjwt>=2.13.0,<3",
+    # Outbound HTTP to Ollama and Groq. Promoted from the dev extra rather than added:
+    # it was already pinned here as the test client. Native async matters on 2 OCPU —
+    # urllib would need a thread per in-flight call — and it splits connect from read
+    # timeouts, which the two providers need set very differently.
+    #
+    # No vendor SDK, for either provider. `groq` and `ollama` are thin wrappers over one
+    # POST each, and each brings its own auth, retry and error model — which is the
+    # thing app/llm/base.py exists to have exactly one of.
+    #
+    # Verified 22 Aug 2026, and not a preference: Groq sits behind Cloudflare, which
+    # 403s (error 1010) on urllib's default user-agent. httpx is admitted.
+    "httpx>=0.28.1,<0.29",
 ]
 
 # Not installed in the runtime image — the Dockerfile's `test` stage adds them.
 # There is deliberately no BIP-39 library: the server never sees a recovery phrase, and
 # the one place it derives a seed is the committed test vector, which needs only
 # hashlib.pbkdf2_hmac. See "The auth contract" in the root design doc.
+#
+# There is also no `pgvector` package. Embeddings are written as a text literal cast
+# with `$1::vector` and are never selected back into Python — the distance is computed
+# in Postgres, which is the entire point of storing them there. See app/coach/retrieval.py.
 [project.optional-dependencies]
 dev = [
     "pytest>=9.1.1,<10",
     "pytest-asyncio>=1.4.0,<2",
-    "httpx>=0.28.1,<0.29",
 ]
 
 [tool.pytest.ini_options]
