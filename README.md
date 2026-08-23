@@ -105,16 +105,25 @@ tuning against real movement.
 | **The other nine** | Rep counting works. **`violation_rules = 0`** — a clean-form indicator on these means *nothing was ever checked*, not that the form was good. Thresholds are literature-derived plus one device sweep |
 
 A ten-exercise sweep on a Pixel 6a (20 Aug 2026) was the first time nine of those rows had ever
-been run by a person, and it found real defects that are still open:
+been run by a person, and it found three real defects. Each was **fixed at the cause rather than
+tuned around**:
 
-- **Shoulder press is broken** — a collapsed calibration span produced a peak-progress reading
-  of **38.75** where 1.0 is the target.
-- **Tricep extension never calibrates** at all.
-- **Push-up counts wildly** — 21 counted for roughly four performed.
+| Found | Cause | Fix |
+| --- | --- | --- |
+| Shoulder press read a peak progress of **38.75** where 1.0 is the target | A calibration captured near the target collapsed the span, and nothing rejected it | A **calibration span guard** — a capture is refused unless it spans at least half the configured range |
+| Push-up counted **21 reps for roughly four** performed | The alignment gate was held open (`kAligned = true`), so nothing checked the athlete was in frame and side-on before counting | The **gate is closed**; `kAligned = true` is gone from `engine.cpp` |
+| Tricep extension **never calibrated** | Its joint triple could not produce a usable span from a front view | The row was **replaced by the jumping jack** at id 8 |
 
-Those numbers are in the repository rather than smoothed away, because the unclamped value is
-what made the calibration bug findable. See the app design doc for the full sweep
-table.
+**These fixes are covered by the native suite but have not been re-verified on a phone.** The
+span guard and the plausibility bound were both mutation-proved — each constant set to `0`,
+three tests watched going red, then reverted and re-run green — and `squat_8rep` counts 8 of 8
+through the replay with the gate closed. That is the strongest statement available: the causes
+are addressed and the tests fail when the guards are removed, but nine of the ten rows have not
+been through a device sweep since, and the jumping jack has never been run by a person at all.
+
+The 38.75 is still in the repository rather than smoothed away, because storing that value
+unclamped is what made the bug findable in the first place. See the app design doc
+for the full sweep table and both sets of numbers.
 
 **Also not established:** no set counted from live landmarks has yet synced end to end — the
 camera-to-row half and the row-to-backend half are each verified and the join between them is
