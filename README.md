@@ -122,8 +122,7 @@ are addressed and the tests fail when the guards are removed, but nine of the te
 been through a device sweep since, and the jumping jack has never been run by a person at all.
 
 The 38.75 is still in the repository rather than smoothed away, because storing that value
-unclamped is what made the bug findable in the first place. See the app design doc
-for the full sweep table and both sets of numbers.
+unclamped is what made the bug findable in the first place.
 
 **Also not established:** no set counted from live landmarks has yet synced end to end — the
 camera-to-row half and the row-to-backend half are each verified and the join between them is
@@ -262,11 +261,11 @@ the format of the data.**
 
 | | |
 | --- | --- |
-| the root design doc | What is settled, what is rejected, the auth contract, the build order |
-| the app design doc | The JNI contract, the FSM, the exercise table, tuning constants, the device sweep |
-| the backend design doc | Schema mirroring, idempotency, the coaching pipeline, deployment decisions |
+| [`app/src/main/cpp/`](app/src/main/cpp/) | The per-frame engine: One Euro filter, geometry, rep FSM, exercise config table |
+| [`app/src/main/java/com/kinex/`](app/src/main/java/com/kinex/) | Camera, pose, Compose UI, Room storage, sync, audio cues |
+| [`backend/app/`](backend/app/) | FastAPI routers, migrations, LLM providers, retrieval, nightly jobs |
 | [`deploy/README.md`](deploy/README.md) | Apply order, resource budget, TLS, backups |
 
-The three the root design doc files are the real documentation — they carry the reasoning, the rejected
-alternatives and the things that went wrong, at a level of detail this README deliberately does
-not.
+The reasoning behind each decision — the rejected alternatives, the tuning constants and the
+things that went wrong — lives in the commit messages, which are written at a level of detail
+this README deliberately does not attempt.
