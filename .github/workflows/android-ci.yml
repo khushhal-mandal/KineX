@@ -1,0 +1,114 @@
+# The Android app: the JVM unit tests, then a debug build.
+#
+# This is the third workflow and the one Phase 11 has been owing since the signed-release
+# pipeline was dropped. Until it existed **no Kotlin in this repository was covered by CI at
+# all** — `AuthVectorTest`, `CoachWireTest` and `CueUtterancesTest` ran only when somebody ran
+# them on a laptop.
+#
+# `AuthVectorTest` is the reason this matters most. It is the project's only cross-language
+# check: it asserts the Kotlin side of the auth contract reproduces
+# `backend/tests/vectors/auth_v1.json` byte for byte — seed, seed[0:32], public key, device id,
+# signed message, signature. Both halves of that contract have to agree or the only symptom is
+# an opaque 401, and until now the backend half was tested on every push while the client half
+# was not tested at all.
+#
+# **No emulator and no device.** `testDebugUnitTest` is the local JVM suite; the instrumented
+# tests under `androidTest/` are deliberately out of scope, because they need a running
+# backend, and one of them is stale besides (see "Known and accepted" in the app design doc).
+# `assembleDebug` is here to prove the app still builds, native code included — a unit suite
+# that passes against a tree that will not assemble is not a green build.
+
+name: android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "!app/**.md"
+      - "gradle/**"
+      - "gradlew"
+      - "gradle.properties"
+      - "settings.gradle.kts"
+      - "build.gradle.kts"
+      # Not a stray entry. AuthVectorTest reads this file by absolute path, so a change to the
+      # vector has to re-run the Kotlin side — that is the whole point of having one copy
+      # rather than a twin in test resources that can drift.
+      - "backend/tests/vectors/auth_v1.json"
+      - ".github/workflows/android-ci.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "!app/**.md"
+      - "gradle/**"
+      - "gradlew"
+      - "gradle.properties"
+      - "settings.gradle.kts"
+      - "build.gradle.kts"
+      - "backend/tests/vectors/auth_v1.json"
+      - ".github/workflows/android-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Both pinned to what app/build.gradle.kts declares, and for engine.yml's reason: a
+  # toolchain arriving through a runner image update should not be able to change the result
+  # of a commit that did not touch the code. `ndkVersion` and the cmake `version` in that file
+  # are the source of truth; if either moves, this moves with it.
+  NDK_VERSION: 28.2.13676358
+  CMAKE_VERSION: 3.22.1
+  COMPILE_SDK: 36
+
+jobs:
+  build:
+    name: unit tests + debug build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # JDK 17 rather than the runner's default. AGP 9.0.1 ships Java 11 bytecode so 17 is
+      # comfortably above its floor, and pinning means the compiler this builds with does not
+      # change under a runner image bump. Developers here run 22; the build targets Java 11
+      # either way (`compileOptions` in app/build.gradle.kts), so the two agree on output.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      # `assembleDebug` runs CMake through externalNativeBuild, so the NDK and CMake have to
+      # be the pinned versions rather than whatever is preinstalled. Installed explicitly
+      # instead of leaning on AGP's auto-download so a missing component is a named failure in
+      # this step rather than a confusing one inside the build.
+      - name: Resolve the pinned SDK components
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-$COMPILE_SDK" \
+            "ndk;$NDK_VERSION" \
+            "cmake;$CMAKE_VERSION" > /dev/null
+
+      # Tests before the build, so the cheap thing fails first. There is no local.properties on
+      # a runner, which is deliberate and handled: app/build.gradle.kts falls back to the
+      # emulator loopback for API_BASE_URL, and nothing in this suite makes a network call.
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Debug build
+        run: ./gradlew assembleDebug
+
+      # A failed assertion with no report is a second round trip to reproduce locally. Only on
+      # failure — there is nothing to read when it passes.
+      - name: Test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest
+          retention-days: 7

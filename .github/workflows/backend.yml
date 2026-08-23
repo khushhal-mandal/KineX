@@ -4,16 +4,27 @@
 
 name: backend
 
+# Markdown under backend/ is excluded, and it has to be a `!` pattern inside `paths` rather
+# than a `paths-ignore` block — GitHub refuses both filters on the same event. The exclusion
+# exists because a the backend design doc edit used to run the whole suite and publish an arm64
+# image to GHCR, which happened on 23 Aug 2026 for a documentation-only commit. Nothing in
+# `backend/**.md` can change what the image contains.
+#
+# One consequence to know rather than discover: path filters apply to tag pushes too, so a
+# `v*` tag cut on a commit that only touched markdown will not publish a release image. Tag
+# the commit that changed the code, or use workflow_dispatch.
 on:
   push:
     branches: [main]
     tags: ["v*"]
     paths:
       - "backend/**"
+      - "!backend/**.md"
       - ".github/workflows/backend.yml"
   pull_request:
     paths:
       - "backend/**"
+      - "!backend/**.md"
       - ".github/workflows/backend.yml"
   # So a broken base image or an expired action can be found without a commit.
   workflow_dispatch:
