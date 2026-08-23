@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -35,6 +36,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.kinex.pose.Exercise
 import com.kinex.ui.CameraScreen
+import com.kinex.ui.CoachScreen
 import com.kinex.ui.HistoryScreen
 import com.kinex.ui.HomeScreen
 import com.kinex.ui.RecoveryPhraseScreen
@@ -43,6 +45,7 @@ import com.kinex.ui.SetSummaryScreen
 import com.kinex.ui.SettingsScreen
 import com.kinex.sync.DeviceIdentity
 import com.kinex.sync.SessionSyncWorker
+import com.kinex.ui.nav.Coach
 import com.kinex.ui.nav.History
 import com.kinex.ui.nav.Home
 import com.kinex.ui.nav.RecoveryPhrase
@@ -73,7 +76,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** The three destinations the bottom bar switches between. Order is the bar's order. */
+/**
+ * The four destinations the bottom bar switches between. Order is the bar's order.
+ *
+ * Coach sits second because it is a thing you do, next to the other one; History and Settings
+ * are both places you go to look something up. `Icons.Filled.Face` rather than a speech bubble
+ * for a duller reason — the chat glyphs live in `material-icons-extended`, and a second icon
+ * artifact is not worth one tab.
+ */
 private enum class Tab(
     val label: String,
     val icon: ImageVector,
@@ -81,6 +91,7 @@ private enum class Tab(
     val routeClass: KClass<*>,
 ) {
     HOME("Home", Icons.Filled.Home, Home, Home::class),
+    COACH("Coach", Icons.Filled.Face, Coach, Coach::class),
     HISTORY("History", Icons.Filled.DateRange, History, History::class),
     SETTINGS("Settings", Icons.Filled.Settings, Settings, Settings::class),
 }
@@ -148,6 +159,13 @@ private fun KineXApp() {
                     onOpenHistory = { navController.switchTab(History) },
                     modifier = content,
                 )
+            }
+
+            composable<Coach> {
+                // No callbacks. The coach reads what has synced and writes nothing, so there
+                // is nowhere for it to navigate to — a reply naming a session cannot link to
+                // one, because what comes back is prose rather than a row id.
+                CoachScreen(modifier = content)
             }
 
             composable<History> {

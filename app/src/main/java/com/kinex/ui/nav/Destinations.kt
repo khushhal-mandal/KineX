@@ -21,6 +21,16 @@ import kotlinx.serialization.Serializable
 @Serializable
 data object Home
 
+/**
+ * Bottom-nav tab: ask the backend a question about the sessions this device has synced.
+ *
+ * Carries no arguments, and could not usefully carry one: the backend keeps no conversation,
+ * so there is no thread id to restore and a question in flight belongs to the screen rather
+ * than to the route.
+ */
+@Serializable
+data object Coach
+
 /** Bottom-nav tab: every past set, newest first. */
 @Serializable
 data object History

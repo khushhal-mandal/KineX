@@ -11,10 +11,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * The three backend calls this app makes, over `HttpURLConnection`.
+ * The four backend calls this app makes, over `HttpURLConnection`.
  *
  * **No Retrofit and no OkHttp**, and that is a deliberate reading of the working agreement's
- * rule about dependencies the root design doc does not name. There are three endpoints, all
+ * rule about dependencies the root design doc does not name. There are four endpoints, all
  * JSON, none streaming, none needing interceptors or a connection pool that outlives a
  * fifteen-second sync. What a client library would buy here is about forty lines.
  *
@@ -35,6 +35,17 @@ internal class KineXApi(private val baseUrl: String) {
 
     suspend fun ingest(bearerToken: String, sessions: List<SessionPayload>): IngestResponse =
         post("/sessions", IngestRequest(sessions), bearerToken)
+
+    /**
+     * One coaching question, answered cold.
+     *
+     * The request carries the question and nothing else. There is no conversation-history
+     * field to fill in — the backend retrieves fresh against the full question every time,
+     * which is what keeps the answer grounded in this device's sessions rather than in what
+     * was said three turns ago. See `backend/app/api/coach.py`.
+     */
+    suspend fun coachChat(bearerToken: String, message: String): CoachChatResponse =
+        post("/coach/chat", CoachChatRequest(message), bearerToken)
 
     private suspend inline fun <reified B, reified R> post(
         path: String,
@@ -76,8 +87,12 @@ internal class KineXApi(private val baseUrl: String) {
          * `ignoreUnknownKeys` so a field added to a response by a newer backend is not a client
          * crash. The reverse — a field this client needs going missing — still fails, which is
          * the right way round.
+         *
+         * Not private, so `CoachWireTest` can decode a recorded server response through the
+         * same configuration this file uses rather than through a copy of it. A test that
+         * builds its own `Json` proves the test's decoder works.
          */
-        private val JSON = Json { ignoreUnknownKeys = true }
+        val JSON = Json { ignoreUnknownKeys = true }
     }
 }
 
@@ -157,4 +172,39 @@ internal data class IngestRequest(val sessions: List<SessionPayload>)
 internal data class IngestResponse(
     val created: List<String>,
     @SerialName("already_present") val alreadyPresent: List<String>,
+)
+
+/**
+ * A coaching question.
+ *
+ * The backend caps this at 1000 characters and refuses a blank one with a 422. Neither bound
+ * is repeated here as a constant — the input field enforces the same limits for the sake of
+ * the person typing, and a duplicated cap that drifts from the server's is worse than none.
+ */
+@Serializable
+internal data class CoachChatRequest(val message: String)
+
+@Serializable
+internal data class CoachChatResponse(
+    val reply: String,
+    /**
+     * Whichever model answered, as the backend's provider names it — `openai/gpt-oss-20b`
+     * today. It is `"none"` for the reply the backend writes itself when a device has no
+     * sessions to ground an answer in, and that case is not attributed to a model on screen.
+     */
+    val model: String,
+    val grounding: GroundingPayload,
+)
+
+/**
+ * What the answer was built from.
+ *
+ * The backend returns more of this than is decoded here — the retrieved summaries and their
+ * distances — and `ignoreUnknownKeys` drops them. The session count is the part worth showing:
+ * it is the difference between an answer about this athlete and an answer about nothing, and
+ * the coach's whole claim is that it is reading real sets.
+ */
+@Serializable
+internal data class GroundingPayload(
+    @SerialName("sessions_considered") val sessionsConsidered: Int,
 )
