@@ -6,7 +6,7 @@ name: backend
 
 # Markdown under backend/ is excluded, and it has to be a `!` pattern inside `paths` rather
 # than a `paths-ignore` block — GitHub refuses both filters on the same event. The exclusion
-# exists because a the backend design doc edit used to run the whole suite and publish an arm64
+# exists because a backend design doc edit used to run the whole suite and publish an arm64
 # image to GHCR, which happened on 23 Aug 2026 for a documentation-only commit. Nothing in
 # `backend/**.md` can change what the image contains.
 #
