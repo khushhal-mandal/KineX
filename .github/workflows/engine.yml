@@ -44,12 +44,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The install branch had never actually executed: every runner image so far has
+      # shipped this NDK, so the guard skipped it and the `yes | sdkmanager ... > /dev/null`
+      # underneath was unproven. It was also broken — sdkmanager stops reading stdin, `yes`
+      # takes SIGPIPE, and `pipefail` turns that into a 141 that fails the step even though
+      # the install worked. android-ci.yml ran the same construct unguarded on 23 Aug 2026
+      # and failed on its first run, which is what surfaced it here. Fixed the same way:
+      # no pipe, no pipefail, stdin closed, output left visible.
       - name: Resolve the NDK
         run: |
-          set -euo pipefail
+          set -eu
           if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-              "ndk;$NDK_VERSION" > /dev/null
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+              "ndk;$NDK_VERSION" < /dev/null
           fi
           # The Makefile declares `NDK ?=`, so an exported value wins over its own
           # newest-NDK guess. Both the jni.h sysroot and GoogleTest come from here.

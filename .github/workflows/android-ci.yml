@@ -86,13 +86,23 @@ jobs:
       # be the pinned versions rather than whatever is preinstalled. Installed explicitly
       # instead of leaning on AGP's auto-download so a missing component is a named failure in
       # this step rather than a confusing one inside the build.
+      #
+      # **No `yes |` and no `pipefail`, and that is not style.** sdkmanager stops reading
+      # stdin as soon as it has what it needs, which sends SIGPIPE to `yes`; under
+      # `pipefail` the pipeline then reports 141 and fails the step even though every
+      # package installed correctly. That is exactly how this workflow failed on its first
+      # run. Runner images have the SDK licences pre-accepted so there is nothing to answer,
+      # and `< /dev/null` means a future prompt fails loudly instead of hanging.
+      #
+      # Output is deliberately not sent to /dev/null. The first failure here was
+      # undiagnosable from the outside precisely because it was.
       - name: Resolve the pinned SDK components
         run: |
-          set -euo pipefail
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+          set -eu
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-$COMPILE_SDK" \
             "ndk;$NDK_VERSION" \
-            "cmake;$CMAKE_VERSION" > /dev/null
+            "cmake;$CMAKE_VERSION" < /dev/null
 
       # Tests before the build, so the cheap thing fails first. There is no local.properties on
       # a runner, which is deliberate and handled: app/build.gradle.kts falls back to the
