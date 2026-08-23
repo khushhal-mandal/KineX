@@ -1,0 +1,121 @@
+# The backend: the Python suite, then the image that goes to GHCR.
+#
+# Until this existed the 85 tests ran only when someone ran them.
+
+name: backend
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  # So a broken base image or an expired action can be found without a commit.
+  workflow_dispatch:
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: pytest
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # The suite runs through compose, not through a bare `pytest` on the runner, and
+      # that is a constraint rather than a preference. tests/conftest.py shells out to
+      # `alembic upgrade head` with cwd="/srv" — the path inside the image — so the tests
+      # only run where /srv exists. Running them the way the project runs them also means
+      # CI exercises docker-compose.yml and the Dockerfile's `test` stage, which are two
+      # more things that can break.
+      - name: Write the compose environment
+        run: |
+          cp backend/.env.example backend/.env
+
+      # Without this the run silently tests whatever was in the previous image — the same
+      # trap the backend design doc documents for running the suite by hand.
+      - name: Build the test image
+        working-directory: backend
+        run: docker compose build test
+
+      # Postgres is a real one, in the compose network. Nothing here is mocked: almost
+      # every property worth testing in this backend is a database behaviour, and a fake
+      # would be a second implementation of Postgres written by the person whose
+      # assumptions are being checked.
+      #
+      # KINEX_GROQ_API_KEY is a deliberate fake in the compose file and no test may reach
+      # Groq — a suite whose result depends on a third-party free tier goes red for
+      # reasons that have nothing to do with this code.
+      - name: Run the suite
+        working-directory: backend
+        run: docker compose run --rm test
+
+      - name: Tear down
+        if: always()
+        working-directory: backend
+        run: docker compose down --volumes --remove-orphans
+
+  image:
+    name: image → ghcr
+    needs: tests
+    # Never on a pull request. A fork's PR has no write token, and an image built from
+    # unreviewed code has no business in the registry the box pulls from.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      # linux/arm64 only, built under emulation on an amd64 runner. Both the Oracle
+      # Always Free instance and the development laptop are arm64, so an amd64 image
+      # would be a platform nothing in this project runs on, paid for on every push.
+      # The runtime dependencies all ship aarch64 wheels, so nothing is compiled here.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/kinex-backend
+          # `0.1.0` from a `v0.1.0` git tag is the form deploy/k3s/ pins, so cutting a
+          # release and bumping the tag in the manifests are the same version string.
+          # The immutable sha tag is what makes "which build is that pod running" a
+          # question with an answer.
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          platforms: linux/arm64
+          # **Load-bearing.** `test` is the last stage in the Dockerfile, so a build
+          # without this ships pytest and the tests/ directory to GHCR. Compose pins the
+          # same target for the same reason.
+          target: runtime
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

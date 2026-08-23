@@ -1,0 +1,77 @@
+# The C++ engine's host-side suite: unit tests, the JNI leak soak, and ASan/UBSan.
+#
+# No device and no emulator. `app/src/main/cpp/test/Makefile` builds the engine against
+# the host compiler, taking jni.h and GoogleTest from the NDK the app is built with — so
+# there is nothing to install beyond the NDK itself and the version is pinned to the
+# toolchain rather than to whatever the runner image happens to ship.
+#
+# This lives in its own workflow rather than in backend.yml because it shares nothing with
+# the backend: different language, different toolchain, different paths. The repository
+# layout in the design doc names backend.yml and android-release.yml; this is a third file.
+
+name: engine
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/src/main/cpp/**"
+      - ".github/workflows/engine.yml"
+  pull_request:
+    paths:
+      - "app/src/main/cpp/**"
+      - ".github/workflows/engine.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: engine-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The version this project is built against. Pinned rather than taking whatever the
+  # runner's newest NDK is, because the suite compiles with -Werror: a toolchain bump
+  # arriving through a runner image update would turn a new warning into a red build on a
+  # commit that did not touch the code.
+  NDK_VERSION: 28.2.13676358
+
+jobs:
+  cpp:
+    name: engine suite
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve the NDK
+        run: |
+          set -euo pipefail
+          if [ ! -d "$ANDROID_HOME/ndk/$NDK_VERSION" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+              "ndk;$NDK_VERSION" > /dev/null
+          fi
+          # The Makefile declares `NDK ?=`, so an exported value wins over its own
+          # newest-NDK guess. Both the jni.h sysroot and GoogleTest come from here.
+          echo "NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        working-directory: app/src/main/cpp/test
+        run: make test
+
+      # On Linux this is the real LeakSanitizer path — `-fsanitize=address,leak` with
+      # LSAN_OPTIONS=exitcode=23. macOS has no LSan (clang rejects the flag for
+      # arm64-apple-darwin), so on a developer's laptop the same contract is enforced with
+      # `leaks`. CI is therefore the only place the sanitizer half of that Makefile branch
+      # ever runs.
+      #
+      # Two invocations per mode, each judged by its exit status alone: the soak's own
+      # JNI-contract verdict, then the leak verdict. Nothing parses output — a grep for
+      # "leaks" once missed the singular form and reported a pass it had not earned.
+      - name: JNI leak soak
+        working-directory: app/src/main/cpp/test
+        run: make soak
+
+      - name: ASan / UBSan
+        working-directory: app/src/main/cpp/test
+        run: make asan
