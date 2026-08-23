@@ -1,0 +1,132 @@
+# PostgreSQL with pgvector. Same image pin as backend/docker-compose.yml — a deploy must
+# not also be a database version change.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: kinex
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+  # No storageClassName: take the cluster default. That is `local-path` on k3s and also on
+  # k3d, which is what makes these manifests verifiable on a laptop without an overlay.
+  # On a single node a local-path volume is the right answer anyway — there is no second
+  # node for a network volume to be worth its latency to.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: kinex
+spec:
+  # ClusterIP, never NodePort. The database is reachable from inside the cluster and from
+  # nowhere else; the Oracle security list is the second lock, not the first.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: kinex
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: kinex
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, and this is load-bearing rather than tidiness. A ReadWriteOnce volume can
+    # be mounted by one pod at a time, so a RollingUpdate deadlocks: the new pod cannot
+    # start until it gets the volume, and the old pod does not release it until the new
+    # one is ready. The symptom is a Pending pod and a database that never restarts.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: kinex
+    spec:
+      # Postgres needs longer than the 30s default to shut down cleanly. A SIGKILL
+      # mid-checkpoint is recoverable — it replays the WAL on next boot — but it is
+      # recovery time on a box with two cores, for no reason.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:0.8.6-pg17-bookworm
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: kinex-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kinex-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: kinex-secrets
+                  key: POSTGRES_DB
+            # A subdirectory of the mount, not the mount itself. An ext4 volume — which is
+            # what an Oracle block volume is — has a `lost+found` at its root, and initdb
+            # refuses to run in a directory that is not empty. The failure is at first
+            # boot only, which is the worst time to meet it.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              # -U and -d are not optional, exactly as in compose: bare pg_isready answers
+              # for the wrong role and reports ready while the named database is still
+              # being created on first boot.
+              command:
+                ["sh", "-c", 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -q']
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            # A socket check, deliberately weaker than the readiness probe above. During
+            # WAL replay Postgres accepts connections and refuses queries with "the
+            # database system is starting up" — so pg_isready fails and the socket
+            # answers. Restarting a database that is recovering makes it start recovering
+            # again, which is the one thing that turns a slow boot into an unbounded one.
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            # See the budget table in ../README.md. Requests are the steady state the
+            # scheduler reserves; limits are the ceiling. Postgres gets the larger memory
+            # ceiling of the two long-running services because shared_buffers plus a few
+            # concurrent sorts is where this box's memory actually goes.
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data

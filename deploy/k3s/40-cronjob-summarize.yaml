@@ -1,0 +1,97 @@
+# The nightly training summaries. `python -m app.jobs.summarize`, on a schedule.
+#
+# This is the batch half of the coaching pipeline: read each device's sessions, write a
+# narrative on the local qwen2.5:3b, embed it with nomic-embed-text, store both. It runs
+# at 3am because generation on two ARM cores is minutes per device and nothing is waiting
+# on it — which is the entire reason it is allowed to be a local model at all.
+#
+# Measured on a laptop, CPU-only, cold model load included: 219 s for the real synced
+# device and 51 s for a 10-session synthetic one. Nobody has measured it on the Oracle box.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kinex-summarize
+  namespace: kinex
+  labels:
+    app.kubernetes.io/name: kinex-summarize
+    app.kubernetes.io/part-of: kinex
+spec:
+  schedule: "0 3 * * *"
+  # Stated rather than inherited from the node. A box whose timezone changes — or a second
+  # box in another region — must not move when the nightly job runs.
+  timeZone: "Etc/UTC"
+  # A run that overruns must not be joined by the next night's. Two concurrent generations
+  # on two cores would make both slower and could collide on
+  # uq_session_summaries_device_period.
+  concurrencyPolicy: Forbid
+  # If the box was down at 3am, still run when it comes back — but only within the hour,
+  # not at whatever time it happens to boot.
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # Retrying is close to free and lands only where it is needed. The job's exit code
+      # is 1 if *any* device failed, but the devices that succeeded now have a summary for
+      # an unchanged window, so the retry skips them — see the "unchanged" branch in
+      # app/jobs/summarize.py — and re-attempts only the ones that timed out.
+      backoffLimit: 2
+      # Two hours, so a wedged generation cannot still be holding `Forbid` at 3am
+      # tomorrow. Generous against the numbers above, and bounded is the point.
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kinex-summarize
+            app.kubernetes.io/part-of: kinex
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: summarize
+              image: ghcr.io/khushhal-mandal/kinex-backend:0.1.0
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-m", "app.jobs.summarize"]
+              envFrom:
+                - configMapRef:
+                    name: kinex-config
+              env:
+                - name: KINEX_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: kinex-secrets
+                      key: KINEX_DATABASE_URL
+                # Neither of the two below is used on this path — the batch job generates
+                # on the local Ollama and issues no tokens. They are here because the job
+                # calls `get_settings()`, and `Settings` declares both without a default,
+                # so the process refuses to start without them. That is the documented
+                # trade (the backend design doc) and the alternative — a second, narrower
+                # settings class for jobs — is a speculative abstraction for two lines of
+                # YAML.
+                - name: KINEX_JWT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: kinex-secrets
+                      key: KINEX_JWT_SECRET
+                - name: KINEX_GROQ_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: kinex-secrets
+                      key: KINEX_GROQ_API_KEY
+              securityContext:
+                # runAsUser alongside runAsNonRoot for the same reason as the API pod: the
+                # image names its user (`kinex`) rather than numbering it, and the kubelet
+                # cannot verify a name is non-root without starting the container.
+                runAsNonRoot: true
+                runAsUser: 10001
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                # Small, because the expensive part of this job happens in the ollama pod.
+                # This process assembles SQL facts, renders a prompt and waits on HTTP.
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 768Mi

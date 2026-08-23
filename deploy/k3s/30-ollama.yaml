@@ -1,0 +1,121 @@
+# Ollama, serving two models: `qwen2.5:3b` for the nightly batch narratives and
+# `nomic-embed-text` for embeddings on the interactive chat path.
+#
+# The split is deliberate and is argued in the root design doc: generation is autoregressive,
+# one forward pass per output token, and at ~3 tok/s on two ARM cores it can only live in
+# a job nobody is waiting on. An embedding is a *single* forward pass — 0.13 s warm — so
+# it can sit inside a request that a person is waiting on. Same container, opposite
+# latency budgets.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: kinex
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # ~2.2 GB of models today (qwen2.5:3b at 1.9 GB, nomic-embed-text at 274 MB). The
+      # rest is room to pull a replacement alongside the model it replaces rather than
+      # having to delete the working one first.
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: kinex
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: kinex
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/part-of: kinex
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, for the same ReadWriteOnce reason as postgres: a rolling update would
+    # deadlock on the volume.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ollama
+        app.kubernetes.io/part-of: kinex
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.32.15
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            # The bind address. The image already sets this, but a Service in front of a
+            # server listening on 127.0.0.1 fails as a connection refused from another
+            # pod, which reads like a networking problem rather than a bind problem.
+            # Stating it here means that never depends on the image's default.
+            #
+            # Note the same variable means the opposite thing in the puller next door:
+            # there it is the address of the server to talk to.
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            # Two cores. Serving several requests concurrently would split them, and
+            # neither workload benefits: the nightly job is one device at a time, and the
+            # chat path wants its single embedding back as fast as possible.
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          readinessProbe:
+            # A round trip to the server, so it goes green only once the server is
+            # answering rather than once the process has started — the same property
+            # compose gets from `ollama ps`, without spawning a CLI every ten seconds.
+            httpGet:
+              path: /api/version
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            # The largest memory ceiling on the box, because a loaded qwen2.5:3b is ~2 GB
+            # resident and inference needs headroom above it. The request is small on
+            # purpose: models unload after five idle minutes, so most of the day this pod
+            # holds almost nothing and reserving 5 GiB against the scheduler would be
+            # reserving it against the API.
+            #
+            # The CPU ceiling is 1.5 of the 2 available cores. Uncapped, a 3am generation
+            # would take both and leave the API's event loop fighting for a slice of one.
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1500m
+              memory: 5Gi
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models

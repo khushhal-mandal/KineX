@@ -1,0 +1,138 @@
+# pg_dump to a volume, nightly.
+#
+# **A dump nobody has restored is not a backup.** This one at least proves it can be read:
+# the dump is written to a temporary name, parsed with `pg_restore --list`, and only then
+# renamed into place — so a truncated or half-written file never occupies the slot a good
+# one would have, and never survives to be the newest thing on disk when it is needed.
+# Restoring one for real is still a manual step, and still the only complete test.
+#
+# **These dumps land on the same box's disk as the database they came from.** That covers
+# the failure this is actually for — a bad migration, a wrong DELETE, a corrupted table —
+# and covers nothing at all if the instance is lost. Getting a copy off the box is a
+# separate piece of work with a separate credential, and it is not done. Said plainly here
+# rather than implied by the word "backup".
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  namespace: kinex
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # 14 daily dumps of a database whose largest table is one row per rep.
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kinex-backup
+  namespace: kinex
+  labels:
+    app.kubernetes.io/name: kinex-backup
+    app.kubernetes.io/part-of: kinex
+spec:
+  # 04:30, after the 03:00 summarize job, so a dump taken tonight contains tonight's
+  # summaries rather than last night's. The gap is for the summarize job to overrun into.
+  schedule: "30 4 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kinex-backup
+            app.kubernetes.io/part-of: kinex
+        spec:
+          restartPolicy: Never
+          securityContext:
+            # The postgres user in the Debian postgres images. Running the dump as root
+            # would work and is a privilege this job has no use for. fsGroup is what makes
+            # the volume writable by that uid — kubelet applies it to the mount, which is
+            # the only reason a non-root container can write to a fresh PVC.
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+          containers:
+            - name: pg-dump
+              # The *server's* image, and that is the point rather than a convenience:
+              # pg_dump refuses to dump from a server newer than itself, so the client
+              # major version has to track the server's. Taking both from one pinned image
+              # means a Postgres upgrade cannot leave the backup job a major behind.
+              image: pgvector/pgvector:0.8.6-pg17-bookworm
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+                  tmp="/backups/.in-progress-${stamp}.dump"
+                  final="/backups/kinex-${stamp}.dump"
+
+                  # -Fc: the custom format. Compressed, and pg_restore can pick single
+                  # tables out of it, which a plain SQL dump cannot.
+                  pg_dump -Fc -f "$tmp"
+
+                  # Proves the file parses as an archive before it is allowed to count as
+                  # a backup. Cheap, and it catches the failure mode that matters — a
+                  # dump truncated by a full disk or an evicted pod, which is a valid file
+                  # of the wrong length and looks fine in `ls`.
+                  pg_restore --list "$tmp" > /dev/null
+
+                  mv "$tmp" "$final"
+                  echo "wrote $final ($(stat -c %s "$final") bytes)"
+
+                  # Pruning happens only after a verified dump has landed, never before.
+                  # The other order deletes the last known-good backup and then discovers
+                  # the database is unreachable.
+                  find /backups -maxdepth 1 -name 'kinex-*.dump' -mtime +14 -delete
+                  # An interrupted run leaves one of these behind; it is not a backup and
+                  # must not be kept as though it were.
+                  find /backups -maxdepth 1 -name '.in-progress-*.dump' -mtime +1 -delete
+
+                  echo "backups on disk:"
+                  ls -la /backups
+              env:
+                # libpq's own variables, so no password ever appears in the command line
+                # where `ps` would show it.
+                - name: PGHOST
+                  value: postgres
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: kinex-secrets
+                      key: POSTGRES_USER
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: kinex-secrets
+                      key: POSTGRES_PASSWORD
+                - name: PGDATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: kinex-secrets
+                      key: POSTGRES_DB
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: postgres-backups

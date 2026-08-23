@@ -1,0 +1,43 @@
+# Traefik, which k3s bundles — there is no ingress controller to install.
+#
+# **`api.kinex.example` is the one value in these manifests that has to be edited.**
+# `.example` is reserved by RFC 2606 and can never resolve to anyone's real host, which is
+# the point of using it as the placeholder: a manifest applied unedited fails to route
+# rather than quietly reaching a stranger's server.
+#
+# TLS has two halves and only one of them is here. This Ingress declares what it wants —
+# a certificate for that host, in the secret named below, issued by the ClusterIssuer in
+# `tls/`. cert-manager is what fills it in, and cert-manager is not part of this
+# directory: it brings CRDs, so applying `tls/clusterissuer.yaml` before installing it
+# fails on an unknown kind. See ../README.md for the order.
+#
+# Without cert-manager the annotation is inert and Traefik serves its own self-signed
+# certificate on 443 — which is exactly what makes this file applyable to a laptop k3d
+# cluster unmodified, and what the local verification run uses.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kinex-api
+  namespace: kinex
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - api.kinex.example
+      secretName: kinex-api-tls
+  rules:
+    - host: api.kinex.example
+      http:
+        paths:
+          # Every route on one backend. The API is the only thing in this cluster that is
+          # meant to be reachable from outside it: Postgres and Ollama are ClusterIP
+          # Services with no Ingress, so nothing in this file can expose them.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kinex-api
+                port:
+                  number: 8000

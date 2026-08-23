@@ -44,6 +44,12 @@ keystore.properties
 # backend/.env.example is committed and is what a new machine copies.
 /backend/.env
 
+# The filled-in Kubernetes Secret — the Postgres password, the JWT signing secret and a
+# real Groq API key. deploy/secret.example.yaml is committed and is what this is copied
+# from; it lives one directory up so that `kubectl apply -f deploy/k3s/` cannot apply the
+# placeholders over a working secret.
+/deploy/k3s/03-secret.yaml
+
 # Python bytecode and local virtualenvs anywhere in the tree. /tools/__pycache__ above
 # predates the backend and is now covered by these; it is left alone rather than merged.
 __pycache__/

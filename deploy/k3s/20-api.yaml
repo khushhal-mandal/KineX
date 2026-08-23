@@ -1,0 +1,191 @@
+# The FastAPI service, and the migration that has to have run before it serves.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kinex-api
+  namespace: kinex
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: kinex-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kinex-api
+  namespace: kinex
+  labels:
+    app.kubernetes.io/name: kinex-api
+    app.kubernetes.io/part-of: kinex
+spec:
+  # One replica, and the rate limiters are why it stays one. Both the crash limiter and
+  # the chat limiter are per-process in-memory dicts (the backend design doc), so N replicas
+  # means N times the effective limit. Two OCPU does not want two uvicorns anyway.
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kinex-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kinex-api
+        app.kubernetes.io/part-of: kinex
+    spec:
+      # ---------------------------------------------------------------------------------
+      # The migration, as an initContainer rather than as a Job.
+      #
+      # compose has `api` depend on `migrate` with `service_completed_successfully`, so a
+      # failed migration keeps the API down instead of letting it serve against a schema
+      # that is not there. A Job does not reproduce that: nothing makes a Deployment wait
+      # for one, so the API would come up alongside it and answer requests against
+      # whatever schema happened to exist. An initContainer does — the app container is
+      # not started until this exits 0, and a broken revision shows as Init:Error, which
+      # names the failing step instead of leaving a 500 to be traced back to it.
+      #
+      # `alembic upgrade head` against an already-migrated database is a no-op, so this
+      # costs a second on every restart and rollout.
+      #
+      # The one thing to know before scaling past one replica: this runs once per pod, so
+      # N replicas start N concurrent migrations. At replicas: 1 that cannot happen. Past
+      # that it becomes a Job plus a wait-for-schema initContainer.
+      # ---------------------------------------------------------------------------------
+      initContainers:
+        - name: migrate
+          image: ghcr.io/khushhal-mandal/kinex-backend:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["alembic", "upgrade", "head"]
+          env:
+            # One variable, and deliberately not the whole Secret. Migrations do not go
+            # through `Settings` — `sqlalchemy_dsn_from_env()` exists precisely so that
+            # whoever runs `alembic upgrade head` needs a database URL and not a key that
+            # mints tokens (the backend design doc, session 2). Handing this container
+            # KINEX_JWT_SECRET would quietly undo that.
+            - name: KINEX_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kinex-secrets
+                  key: KINEX_DATABASE_URL
+          securityContext:
+            # See the note on the app container below — runAsUser is not optional next to
+            # runAsNonRoot, because the image names its user rather than numbering it.
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      containers:
+        - name: api
+          image: ghcr.io/khushhal-mandal/kinex-backend:0.1.0
+          # IfNotPresent, with an immutable tag. `Always` plus `:latest` is how a restart
+          # silently becomes a version change with no record of which version it was.
+          # Deploying is a one-line bump of this tag in git, which is also the audit trail.
+          imagePullPolicy: IfNotPresent
+          # The image's CMD, restated with the two flags Traefik makes necessary. Spelled
+          # as `command` rather than `args` so it does not depend on the base image having
+          # no ENTRYPOINT — python:slim has none today, and that is not a property worth
+          # relying on from a different file.
+          #
+          # Both rate limiters key on `request.client.host`. Behind an ingress that is the
+          # Traefik pod for every request in the cluster, so the crash limiter would meter
+          # the whole internet as one client and the first 30 reports in ten minutes would
+          # lock out everyone else's. --proxy-headers makes uvicorn take the address from
+          # X-Forwarded-For instead.
+          #
+          # --forwarded-allow-ips is what stops that header being a way to *evade* the
+          # limiter by forging it. It is scoped to the cluster pod CIDR — the k3s default,
+          # and k3d's — rather than `*`, so only a peer inside the cluster is trusted to
+          # set it, and Traefik overwrites the client's own value on the way through.
+          command:
+            - uvicorn
+            - app.main:app
+            - --host=0.0.0.0
+            - --port=8000
+            - --proxy-headers
+            - --forwarded-allow-ips=10.42.0.0/16
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: kinex-config
+          env:
+            - name: KINEX_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kinex-secrets
+                  key: KINEX_DATABASE_URL
+            - name: KINEX_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kinex-secrets
+                  key: KINEX_JWT_SECRET
+            - name: KINEX_GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kinex-secrets
+                  key: KINEX_GROQ_API_KEY
+          readinessProbe:
+            # /health is a real dependency check — it reads alembic_version out of
+            # Postgres and returns 503 when it cannot. That is exactly the right condition
+            # for taking a pod out of the Service: an API that cannot reach its database
+            # should stop receiving traffic.
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            # NOT /health, and the difference between the two probes is the whole point.
+            # /health goes 503 when Postgres is unreachable, so using it here would turn
+            # every database restart into an API restart — a CrashLoopBackOff that fixes
+            # nothing, and that empties the in-memory rate limiters on the way past. A
+            # socket check answers the only question liveness should ask: is this process
+            # still able to accept a connection, or is it wedged.
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            # The image already declares USER kinex, created with --uid 10001. This makes
+            # it a cluster-enforced property rather than a Dockerfile convention: a
+            # rebuild that dropped the USER line runs as 10001 anyway instead of as root.
+            #
+            # **runAsUser is required here, not belt-and-braces.** The kubelet resolves
+            # runAsNonRoot before the container starts and cannot read /etc/passwd inside
+            # the image to find out what `kinex` is, so a *named* USER fails with
+            # "image has non-numeric user (kinex), cannot verify user is non-root" and the
+            # pod never starts. Naming the uid is what makes the check answerable. Found
+            # exactly this way on the first apply.
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi

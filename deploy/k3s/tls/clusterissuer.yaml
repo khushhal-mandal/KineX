@@ -1,0 +1,58 @@
+# cert-manager's issuer, in a subdirectory on purpose.
+#
+# `kubectl apply -f deploy/k3s/` is not recursive, so the stack applies to any cluster —
+# including a laptop k3d one — without this file. It needs cert-manager's CRDs installed
+# first or it fails on an unknown kind, and cert-manager cannot do anything useful on a
+# laptop anyway: an HTTP-01 challenge requires Let's Encrypt to reach the host named in
+# the Ingress over port 80 from the public internet.
+#
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.1/cert-manager.yaml
+#   kubectl -n cert-manager rollout status deploy/cert-manager-webhook
+#   kubectl apply -f deploy/k3s/tls/
+#
+# The rollout wait is not optional. cert-manager's webhook intercepts this resource, and
+# applying it before the webhook is serving fails with a connection refused that reads
+# like a broken manifest.
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Where expiry warnings go. Let's Encrypt requires an address; it is not published
+    # anywhere and is not part of the anonymous-account model — no user's address ever
+    # reaches this file.
+    email: replace-me@example.com
+    privateKeySecretRef:
+      # cert-manager generates the ACME account key here on first use. Deleting this
+      # secret registers a *new* ACME account and starts the rate limits over, which is
+      # occasionally what you want and never what you meant.
+      name: letsencrypt-prod-account-key
+    solvers:
+      # HTTP-01 through the ingress k3s already runs. DNS-01 would need a DNS provider
+      # credential in the cluster, and this project has one host and no wildcard.
+      - http01:
+          ingress:
+            ingressClassName: traefik
+---
+# Staging. Let's Encrypt's production endpoint rate-limits 5 failures per account per
+# hostname per hour, and a misconfigured DNS record burns through that in one afternoon —
+# after which the fix is to wait, not to try harder. Point the Ingress annotation at this
+# issuer first, confirm a certificate is issued, then switch to `letsencrypt-prod`.
+# Staging certificates are untrusted by browsers, which is the whole of the difference.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: replace-me@example.com
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik

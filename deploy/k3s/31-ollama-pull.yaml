@@ -1,0 +1,85 @@
+# Pulls the two models into the ollama volume. The compose one-shot, as a Job.
+#
+# **Nothing depends on this, and that is still right now that one of the two models is on
+# the chat path.** An API that cannot embed should start and answer /health, not refuse to
+# boot behind a 2.2 GB download. A missing model surfaces as a 503 from /coach/chat naming
+# it, which is a better failure than a pod that never becomes ready.
+#
+# Re-applying: a Job's pod template is immutable. `kubectl apply -f deploy/k3s/` over an
+# existing completed Job is a no-op and succeeds, but editing this file and re-applying
+# fails with "field is immutable" — delete the Job first and apply again. That is the cost
+# of a Job over a Deployment and it is the right way round: a one-shot that silently
+# re-ran on every apply would re-download the models.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-pull
+  namespace: kinex
+  labels:
+    app.kubernetes.io/name: ollama-pull
+    app.kubernetes.io/part-of: kinex
+spec:
+  backoffLimit: 4
+  # An hour. The models are 2.2 GB together and the Oracle free tier's egress is not fast.
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ollama-pull
+        app.kubernetes.io/part-of: kinex
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull
+          image: ollama/ollama:0.32.15
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              # Nothing orders a Job after a Deployment becomes ready, so wait rather than
+              # relying on apply order. Without this the Job fails its first attempt on a
+              # cold cluster and recovers only via backoff, which works but reports itself
+              # as an error that was never one.
+              until ollama ps >/dev/null 2>&1; do
+                echo "waiting for ollama to answer at $OLLAMA_HOST"
+                sleep 5
+              done
+
+              # `ollama pull` draws a TTY progress bar and does not check whether it has a
+              # TTY, so a plain call writes thousands of ANSI redraw lines into the Job's
+              # log — roughly 10k for the 1.9 GB model. That is not only noise: this Job
+              # failed once on 22 Aug and the reason was unrecoverable, because whatever
+              # ollama printed was buried in progress frames and the pod had been garbage
+              # collected before anyone read them. So the progress stream goes to a file
+              # and is surfaced only when the pull actually fails.
+              pull() {
+                echo "pulling $1"
+                if ! ollama pull "$1" >/tmp/pull.log 2>&1; then
+                  echo "FAILED to pull $1 — last 20 lines:"
+                  tail -20 /tmp/pull.log
+                  return 1
+                fi
+                echo "pulled $1"
+              }
+
+              pull "$OLLAMA_MODEL"
+              pull "$OLLAMA_EMBED_MODEL"
+              ollama list
+          env:
+            # The server to talk to. Same variable as the ollama Deployment sets, meaning
+            # the opposite thing: there it is a bind address, here it is a destination.
+            - name: OLLAMA_HOST
+              value: "http://ollama:11434"
+          envFrom:
+            # OLLAMA_MODEL and OLLAMA_EMBED_MODEL.
+            - configMapRef:
+                name: kinex-config
+          resources:
+            # The pull streams to disk in the *server's* volume, not this container's
+            # memory — this pod is a CLI making an HTTP request and printing progress.
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

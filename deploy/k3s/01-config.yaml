@@ -1,0 +1,30 @@
+# Non-secret configuration. Everything here is safe in git; anything that is not lives in
+# the Secret next door.
+#
+# `Settings` is declared with `extra="ignore"` (app/config.py), so a pod that receives a
+# key it has no field for ignores it rather than refusing to start. That is why one
+# ConfigMap can serve the API, the summarize CronJob and the ollama-pull Job without each
+# getting its own.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kinex-config
+  namespace: kinex
+data:
+  # Read by Settings (KINEX_ prefix, app/config.py).
+  KINEX_ENV: "production"
+  KINEX_LOG_LEVEL: "INFO"
+  # The ollama Service, resolved by kube-dns inside the namespace. Same shape as the
+  # compose service name, which is the point — nothing in the application changed.
+  KINEX_OLLAMA_URL: "http://ollama:11434"
+
+  # Read by the ollama-pull Job, not by Settings. The chat model is locked to a 3B-class
+  # one in the root design doc: nothing larger serves on 2 ARM cores. The embedding model is
+  # small and sits on the interactive path — one forward pass, not a decode loop.
+  #
+  # These are also the two names app/config.py defaults to (`ollama_chat_model`,
+  # `embedding_model`). They are repeated rather than referenced because the puller is a
+  # shell, not a pydantic Settings — and if they ever disagree, /coach/chat returns a 503
+  # naming the missing model, which is the loud failure.
+  OLLAMA_MODEL: "qwen2.5:3b"
+  OLLAMA_EMBED_MODEL: "nomic-embed-text"

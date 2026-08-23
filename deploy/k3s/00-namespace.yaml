@@ -1,0 +1,10 @@
+# Everything KineX runs in one namespace, so `kubectl delete ns kinex` is a complete
+# teardown and `kubectl get all -n kinex` is a complete inventory. The box also runs
+# k3s's own system pods (traefik, coredns, local-path, metrics-server) in kube-system,
+# and keeping the two apart is what makes the resource budget in ../README.md legible.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kinex
+  labels:
+    app.kubernetes.io/part-of: kinex
