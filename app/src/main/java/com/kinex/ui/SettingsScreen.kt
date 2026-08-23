@@ -106,12 +106,13 @@ fun SettingsScreen(
         ) {
             Column(Modifier.weight(1f).padding(end = 16.dp)) {
                 Text(text = "Speak rep counts and cues")
-                // Said plainly rather than hidden. A switch that remembers its position and
-                // changes nothing is a bug report waiting to be filed; a switch labelled as
-                // not built yet is a roadmap.
+                // Says which exercise can actually produce a cue, because "form cues" on its
+                // own reads as a promise the other nine rows do not keep — they count reps and
+                // judge nothing, so they will only ever speak numbers.
                 Text(
-                    text = "Not built yet. The switch remembers your answer so it is set " +
-                        "correctly when spoken cues land.",
+                    text = "Counts each rep out loud. Form corrections are spoken for the " +
+                        "squat only, the one exercise whose violations are validated. Takes " +
+                        "effect on your next workout.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

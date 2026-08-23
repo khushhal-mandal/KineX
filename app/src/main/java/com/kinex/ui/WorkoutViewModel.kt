@@ -13,6 +13,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.kinex.audio.CueSpeaker
 import com.kinex.data.AppSettings
 import com.kinex.data.RecordedRep
 import com.kinex.data.SessionRepository
@@ -66,6 +67,18 @@ class WorkoutViewModel(
 ) : AndroidViewModel(application) {
 
     private val repository = SessionRepository.get(application)
+
+    /**
+     * Spoken rep counts and form cues, or null if the athlete has them switched off.
+     *
+     * **Read once, here, and not observed.** Settings is not reachable without leaving the
+     * workout, so a change to the switch cannot happen while this object is alive — the same
+     * reasoning `CameraScreen` applies to `showEngineReadout`. Null rather than a speaker with
+     * a mute flag, so switching cues off does not construct a `TextToSpeech` engine or hold a
+     * synthesiser open for a workout that will never use it.
+     */
+    private val speaker: CueSpeaker? =
+        if (AppSettings(application).speakCues) CueSpeaker(application) else null
     private val recorder = LandmarkRecorder(
         File(application.getExternalFilesDir(null) ?: application.filesDir, "recordings")
     ) { error = it }
@@ -341,6 +354,10 @@ class WorkoutViewModel(
             lastRepPeakProgress = snapshot.repPeakProgress
             lastRepViolations = Violation.decode(snapshot.violationMask)
             recordRep(snapshot, timestampMs)
+            // Same branch as the HUD and the history row, so what is spoken, what is on the
+            // chip and what is written to the set are one rep's worth of the same three
+            // numbers. Null when the athlete has cues switched off — see [speaker].
+            speaker?.speakRep(snapshot.repCount, lastRepViolations)
         }
 
         // A set that has gone quiet is a set that ended. Measured on the frame clock, from
@@ -537,6 +554,9 @@ class WorkoutViewModel(
         landmarkerLens = null
         if (detector != null) analysisExecutor.execute { detector.close() }
         analysisExecutor.shutdown()
+        // Stops mid-utterance as well as releasing the engine, so the last rep of a set is not
+        // still being announced over the summary screen the pop just navigated to.
+        speaker?.close()
         recorder.close()
         counter?.close()
         counter = null

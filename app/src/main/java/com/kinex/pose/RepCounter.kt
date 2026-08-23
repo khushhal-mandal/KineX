@@ -22,16 +22,22 @@ enum class RepState {
  * result slot [2] and Kotlin decodes them — that split is the JNI contract's, which is why
  * these values are duplicated here rather than any string crossing.
  *
- * [label] is for the debug overlay. The TTS cue map the design doc still owes is a separate
- * mapping and deliberately not these strings — a HUD tag and a spoken correction are not
- * the same text.
+ * **[label] and [cue] are deliberately different text for the same bit.** A HUD tag is read
+ * at a glance off a screen two metres away and has to be short enough to fit a chip, so it
+ * names the *fault*: "DEPTH". A spoken cue arrives while the athlete is mid-set and cannot be
+ * re-read, so it names the *correction*: "Go deeper". Saying "depth" out loud tells somebody
+ * which rule fired and not what to do about it, which is the wrong half.
+ *
+ * Cues are short because the queue policy in `audio/CueSpeaker` gives them whatever time is
+ * left between reps — see there. A sentence would be cut off by the next rep at any real
+ * training tempo.
  *
  * Only the squat sets either bit today. An exercise with `violation_rules = 0` reports an
  * empty mask forever, which is not the same as a rep having no faults.
  */
-enum class Violation(val bit: Int, val label: String) {
-    DEPTH_MISS(1 shl 0, "DEPTH"),
-    TORSO_LEAN(1 shl 1, "LEAN");
+enum class Violation(val bit: Int, val label: String, val cue: String) {
+    DEPTH_MISS(1 shl 0, "DEPTH", "Go deeper"),
+    TORSO_LEAN(1 shl 1, "LEAN", "Chest up");
 
     companion object {
         fun decode(mask: Int): List<Violation> = entries.filter { mask and it.bit != 0 }

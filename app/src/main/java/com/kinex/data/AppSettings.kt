@@ -38,11 +38,14 @@ class AppSettings(context: Context) {
     /**
      * Whether spoken rep counts and form cues are wanted.
      *
-     * **A placeholder.** Phase 4's TTS has not been built — the design doc's verify step for it is
-     * still half met, "legible, not audible" — so nothing reads this yet. It is stored rather
-     * than faked so that the switch remembers its position, and it is labelled in the UI as
-     * not yet doing anything, because a toggle that silently does nothing is worse than no
-     * toggle.
+     * Read by `WorkoutViewModel`, once, when the workout screen's ViewModel is built: false
+     * means no `TextToSpeech` engine is constructed at all. Changing it therefore applies to
+     * the next workout rather than to one already running, which costs nothing — Settings is
+     * not reachable without leaving the workout screen.
+     *
+     * On by default. Somebody who has put the phone down two metres away to film a squat
+     * cannot read the count, which is the entire reason Phase 4's verify step says "audible
+     * and legible" rather than just legible.
      */
     var speakCues: Boolean
         get() = prefs.getBoolean(KEY_SPEAK_CUES, true)
