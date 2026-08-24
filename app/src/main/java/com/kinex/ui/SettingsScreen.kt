@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.kinex.BuildConfig
 import com.kinex.data.AppSettings
@@ -35,7 +39,7 @@ import com.kinex.data.SessionRepository
 import com.kinex.pose.Exercise
 
 /**
- * Camera default, a TTS placeholder, and about.
+ * Camera default, audio, the workout readout, the backend address, the account, and about.
  *
  * Preferences are held in composable state and written through on every change, rather than
  * gathered and saved behind a button. There is no "apply" here and nothing to cancel, so a
@@ -51,6 +55,10 @@ fun SettingsScreen(
     var lensFacing by remember { mutableIntStateOf(settings.defaultLensFacing) }
     var speakCues by remember { mutableStateOf(settings.speakCues) }
     var engineReadout by remember { mutableStateOf(settings.showEngineReadout) }
+    // Seeded from the getter, so on a phone that has never been told otherwise the field shows
+    // the address the build was compiled with rather than an empty box — which is the whole
+    // question somebody opens this section to answer.
+    var apiBaseUrl by remember { mutableStateOf(settings.apiBaseUrl) }
     var confirmingPhrase by remember { mutableStateOf(false) }
     val waiting by remember { SessionRepository.get(context).unsyncedCount() }
         .collectAsState(initial = 0)
@@ -159,6 +167,54 @@ fun SettingsScreen(
         HorizontalDivider()
         Spacer(Modifier.height(24.dp))
 
+        SectionTitle("Backend")
+        Text(
+            text = "Where this phone looks for the server — scheme, host and port, no path. " +
+                "It used to be a build setting, which meant a laptop picking up a new DHCP " +
+                "address cost a rebuild and a reinstall. Leave it empty to go back to the " +
+                "address this build was compiled with.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 10.dp),
+        )
+        OutlinedTextField(
+            value = apiBaseUrl,
+            onValueChange = {
+                // Written through on each keystroke, like every other preference on this screen.
+                // Safe because nothing holds the value: the API client asks for it per request,
+                // so a half-typed address is only ever wrong for as long as it is half-typed.
+                apiBaseUrl = it
+                settings.apiBaseUrl = it
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("API base URL") },
+            placeholder = { Text(BuildConfig.API_BASE_URL) },
+            singleLine = true,
+            // Uri rather than Text: it is what stops an IME capitalising the scheme or
+            // autocorrecting a hostname into a word.
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Done,
+            ),
+            // Advisory, not a gate — the value is stored either way. A field that silently
+            // refused to keep what you typed would be the more confusing of the two failures,
+            // and this is the one address in the app somebody has a reason to type oddly.
+            isError = !looksLikeAnOrigin(apiBaseUrl),
+            supportingText = {
+                Text(
+                    if (looksLikeAnOrigin(apiBaseUrl)) {
+                        "In use: ${settings.apiBaseUrl}"
+                    } else {
+                        "Expected something like http://192.168.1.20:8000"
+                    }
+                )
+            },
+        )
+
+        Spacer(Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(24.dp))
+
         SectionTitle("Account")
         Text(
             text = "KineX has no email and no password. Your phone holds a key derived from " +
@@ -236,6 +292,23 @@ fun SettingsScreen(
             },
         )
     }
+}
+
+/**
+ * Whether [value] reads as something the API client can build a URL from.
+ *
+ * Blank is deliberately not an error: clearing the field means "use what this build was
+ * compiled with", which is the reset. Everything else has to carry a scheme, because `URL()`
+ * throws `MalformedURLException` on a bare host — and that arrives at the sync worker as an
+ * `IOException` indistinguishable from an unreachable laptop, so it retries a typo forever
+ * instead of saying anything. This is display-only and catches it a screen earlier.
+ */
+private fun looksLikeAnOrigin(value: String): Boolean {
+    val trimmed = value.trim()
+    if (trimmed.isEmpty()) return true
+    val scheme = listOf("http://", "https://").firstOrNull { trimmed.startsWith(it) }
+        ?: return false
+    return trimmed.length > scheme.length
 }
 
 @Composable

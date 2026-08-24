@@ -8,7 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.kinex.BuildConfig
+import com.kinex.data.AppSettings
 import com.kinex.sync.ApiException
 import com.kinex.sync.Authenticator
 import com.kinex.sync.CoachChatResponse
@@ -43,10 +43,14 @@ import java.io.IOException
  */
 class CoachViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val settings = AppSettings(application)
+
     // Constructed once rather than per question. The API object holds no connection — every
     // call opens and disconnects its own — but the authenticator caches a token through
-    // DeviceIdentity, so a second question inside 24 hours costs no handshake.
-    private val api = KineXApi(BuildConfig.API_BASE_URL)
+    // DeviceIdentity, so a second question inside 24 hours costs no handshake. Constructing it
+    // once survives the address changing precisely because the base URL is a provider: this
+    // ViewModel outlives a trip to Settings and back, and would otherwise hold a stale host.
+    private val api = KineXApi { settings.apiBaseUrl }
     private val authenticator = Authenticator(api, DeviceIdentity.get(application))
 
     private val transcript = mutableStateListOf<CoachEntry>()
@@ -139,9 +143,13 @@ class CoachViewModel(application: Application) : AndroidViewModel(application) {
 
         // ApiException extends IOException, so this branch is everything the network did to
         // us rather than anything the server said: no route, refused connection, timeout.
+        // Names the address that was actually called, which is why it reads the setting rather
+        // than the build constant: an error naming a host the app is not talking to sends
+        // somebody debugging their network instead of their typo.
         failure is IOException ->
-            "Can't reach the backend at ${BuildConfig.API_BASE_URL}. Your sets are still " +
-                "recorded on this phone; the coach is the one thing here that needs the server."
+            "Can't reach the backend at ${settings.apiBaseUrl}. Check the address in Settings. " +
+                "Your sets are still recorded on this phone; the coach is the one thing here " +
+                "that needs the server."
 
         else ->
             "The question was never sent: ${failure.message ?: failure.javaClass.simpleName}"

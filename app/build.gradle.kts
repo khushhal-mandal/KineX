@@ -16,14 +16,20 @@ plugins {
 }
 
 /**
- * Where a debug build looks for the backend.
+ * Where a debug build looks for the backend *by default*.
+ *
+ * This is a default now rather than the setting itself: Settings › Backend holds the address
+ * the API client actually uses, and falls back to this value until somebody types one there.
  *
  * `10.0.2.2` is the emulator's alias for the host loopback, so the default works against
  * `docker compose up` on this machine with no configuration at all. A physical phone cannot
- * use it — it is not on the host's loopback — and wants the laptop's LAN address instead, so
- * that case is one line in `local.properties`, which is gitignored and already per-machine:
+ * use it — it is not on the host's loopback — and wants the laptop's LAN address instead.
+ * That is still one line in `local.properties`, which is gitignored and already per-machine:
  *
  *     kinex.apiBaseUrl=http://192.168.1.x:8000
+ *
+ * but it only seeds the default, and moving it needs an edit here and a reinstall — which is
+ * the thing the setting exists to avoid on a laptop whose LAN address moves with DHCP.
  *
  * No trailing slash; the client appends paths that start with one.
  */
@@ -112,7 +118,9 @@ android {
             // Deliberately unreachable. Phase 7 has not happened, so there is no production
             // backend to name, and `.invalid` is reserved by RFC 2606 and never resolves — a
             // release build that tries to sync fails loudly rather than quietly reaching for
-            // whatever laptop happened to be in local.properties at build time.
+            // whatever laptop happened to be in local.properties at build time. Settings can
+            // still point it somewhere, which is a person typing an address rather than a
+            // build inheriting one, and that is the distinction this comment was ever about.
             buildConfigField("String", "API_BASE_URL", "\"https://api.kinex.invalid\"")
         }
     }

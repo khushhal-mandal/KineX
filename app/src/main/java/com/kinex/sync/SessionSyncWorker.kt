@@ -10,7 +10,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.kinex.BuildConfig
+import com.kinex.data.AppSettings
 import com.kinex.data.SessionRepository
 import com.kinex.data.SessionWithReps
 import java.io.IOException
@@ -38,7 +38,10 @@ class SessionSyncWorker(
     override suspend fun doWork(): Result {
         val repository = SessionRepository.get(applicationContext)
         val identity = DeviceIdentity.get(applicationContext)
-        val api = KineXApi(BuildConfig.API_BASE_URL)
+        // Read when a request goes out, not when the worker was enqueued: a run that has been
+        // waiting on the UNMETERED constraint since before the address changed uses the new one.
+        val settings = AppSettings(applicationContext)
+        val api = KineXApi { settings.apiBaseUrl }
         val authenticator = Authenticator(api, identity)
 
         return try {

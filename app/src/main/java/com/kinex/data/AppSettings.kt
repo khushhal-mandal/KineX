@@ -2,15 +2,16 @@ package com.kinex.data
 
 import android.content.Context
 import androidx.camera.core.CameraSelector
+import com.kinex.BuildConfig
 
 /**
  * The handful of preferences the settings screen owns.
  *
  * SharedPreferences rather than DataStore, and that is a dependency decision rather than a
  * technical one: DataStore is the modern answer and it is also another artifact to add for
- * two booleans and an int. The design doc's rule is to ask before adding a dependency, and this
- * did not need one. If preferences ever grow to the point of wanting a Flow per key, that is
- * the moment to make the case for DataStore.
+ * two booleans, an int and a string. The design doc's rule is to ask before adding a dependency,
+ * and this did not need one. If preferences ever grow to the point of wanting a Flow per key,
+ * that is the moment to make the case for DataStore.
  *
  * Reads are synchronous against an in-memory map after the first load, so calling these from
  * a composable is not a disk hit per frame. Writes use `apply` — losing the last write to a
@@ -65,9 +66,36 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_ENGINE_READOUT, false)
         set(value) = prefs.edit().putBoolean(KEY_ENGINE_READOUT, value).apply()
 
+    /**
+     * Where the backend is. Origin only — scheme, host and port — because `KineXApi` appends
+     * paths that already start with a slash.
+     *
+     * **A fallback, not a seeded value.** Nothing is stored until somebody types an address, so
+     * `BuildConfig.API_BASE_URL` — `local.properties` on a debug build, the unreachable
+     * `.invalid` host on a release one — keeps deciding for anyone who never opens this. Writing
+     * the build's value into prefs on first launch would have frozen it there, and a later
+     * `local.properties` edit would then have done nothing for a reason nobody could see.
+     *
+     * Read on every request rather than at construction, which is the point of it: a laptop
+     * whose LAN address moves with DHCP is a field to retype, not a rebuild and a reinstall.
+     */
+    var apiBaseUrl: String
+        get() = prefs.getString(KEY_API_BASE_URL, null) ?: BuildConfig.API_BASE_URL
+        set(value) {
+            // Normalized here so there is one place that does it, rather than at each of the
+            // three call sites or — worse — nowhere, since `baseUrl + path` turns a trailing
+            // slash a person typed into `//auth/challenge` and a 404 that names nothing.
+            val normalized = value.trim().trimEnd('/')
+            prefs.edit().apply {
+                if (normalized.isEmpty()) remove(KEY_API_BASE_URL)
+                else putString(KEY_API_BASE_URL, normalized)
+            }.apply()
+        }
+
     private companion object {
         const val KEY_LENS_FACING = "default_lens_facing"
         const val KEY_SPEAK_CUES = "speak_cues"
         const val KEY_ENGINE_READOUT = "show_engine_readout"
+        const val KEY_API_BASE_URL = "api_base_url"
     }
 }

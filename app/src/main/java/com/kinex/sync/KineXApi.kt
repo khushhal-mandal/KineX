@@ -24,8 +24,13 @@ import java.net.URL
  * format" section puts the rename boundary here on purpose, so this is the file somebody
  * diffs against `app/api/sessions.py` when a sync starts 422ing; the names need to be legible
  * in it.
+ *
+ * [baseUrl] is a provider rather than a string because the address is a setting, not a build
+ * constant. It is called once per request, so an address changed in Settings applies to the
+ * next call without rebuilding anything that holds a client — which is what lets a long-lived
+ * `CoachViewModel` go on constructing its `KineXApi` exactly once.
  */
-internal class KineXApi(private val baseUrl: String) {
+internal class KineXApi(private val baseUrl: () -> String) {
 
     suspend fun challenge(publicKey: String): ChallengeResponse =
         post("/auth/challenge", ChallengeRequest(publicKey))
@@ -52,7 +57,10 @@ internal class KineXApi(private val baseUrl: String) {
         body: B,
         bearerToken: String? = null,
     ): R = withContext(Dispatchers.IO) {
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+        // Resolved per request, and inside the IO block on purpose: the address lives in
+        // `AppSettings` now, so a laptop that moved is a field to retype rather than a rebuild,
+        // and the first read of it is a disk hit that has no business on the main thread.
+        val connection = (URL(baseUrl() + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
             connectTimeout = CONNECT_TIMEOUT_MS

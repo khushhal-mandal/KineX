@@ -33,12 +33,23 @@ import java.util.UUID
  *
  * The device id and the uploaded uid are logged under [TAG] on purpose, so that a run can be
  * cross-checked in `psql` from the host rather than only believed.
+ *
+ * **Two of these tests read the build constant and one reads the setting, which is worth knowing
+ * before debugging a split result.** The client built below is pinned to `BuildConfig`, so it is
+ * not at the mercy of whatever address was last typed into Settings on this device.
+ * [theWorkerUploadsARealSetAndRecordsThatItDid] cannot be: it runs the real worker, and the real
+ * worker resolves `AppSettings.apiBaseUrl` — which is exactly what makes it the end-to-end test.
+ * If that one alone fails to connect, the address in Settings is the first thing to look at.
  */
 @RunWith(AndroidJUnit4::class)
 class SessionSyncTest {
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val api = KineXApi(BuildConfig.API_BASE_URL)
+    // The build constant, deliberately, where the app itself now reads `AppSettings.apiBaseUrl`.
+    // A test that resolved the address the same way the app does would depend on whatever was
+    // last typed into Settings on this device, and would fail for a reason with nothing to do
+    // with the code under test.
+    private val api = KineXApi { BuildConfig.API_BASE_URL }
     private val identity = DeviceIdentity.get(context)
     private val authenticator = Authenticator(api, identity)
 
